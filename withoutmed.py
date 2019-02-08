@@ -15,7 +15,6 @@ from time import time
 from sklearn.metrics import roc_auc_score, average_precision_score
 import sys
 import os
-from data_prep import dataset_prep
 
 from util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
 
@@ -84,12 +83,9 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
         if i%500==0:
             print('%d/%d' %(i,num_encs))
         obs_times = np.insert(np.sort(np.random.uniform(0,end_times[i],num_obs_times[i]-1)),0,0)
-        #print obs_times
         T.append(obs_times)
         l = labels[i]
         y_i,ind_kf_i,ind_kt_i = sim_multitask_GP(obs_times,true_lengths[l],true_noises[l],true_Kfs[l],trainfrac)
-        print "in sim data"
-        print y_i, ind_kf_i, ind_kt_i, obs_times
         Y.append(y_i); ind_kf.append(ind_kf_i); ind_kt.append(ind_kt_i)
         rnn_grid_times.append(np.arange(num_rnn_grid_times[i]))
         if l==0: #sim some different baseline covs; meds for 2 classes
@@ -100,8 +96,8 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
             baseline_covs[i,:int(n_covs/2)] = rs.normal(0.2,1.0,int(n_covs/2))
             baseline_covs[i,int(n_covs/2):] = rs.binomial(1,0.1,int(n_covs/2))
             meds = rs.binomial(1,.04,(num_rnn_grid_times[i],n_meds))
-        print "Meds:",meds
         meds_on_grid.append(meds)
+
     T = np.array(T)
     Y = np.array(Y); ind_kf = np.array(ind_kf); ind_kt = np.array(ind_kt)
     meds_on_grid = np.array(meds_on_grid)
@@ -135,7 +131,7 @@ def sim_multitask_GP(times,length,noise_vars,K_f,trainfrac):
     #get indices of which time series and which time point, for each element in y
     ind_kf = np.tile(np.arange(M),(N,1)).flatten('F') #vec by column
     ind_kx = np.tile(np.arange(N),(M,1)).flatten()
-    print ind_kf, ind_kx
+
     #randomly dropout some fraction of fully observed time series
     perm = np.random.permutation(n)
     n_train = int(trainfrac*n)
@@ -145,8 +141,6 @@ def sim_multitask_GP(times,length,noise_vars,K_f,trainfrac):
     ind_kf_ = ind_kf[train_inds]
     ind_kx_ = ind_kx[train_inds]
 
-    print "after dropout"
-    print ind_kf_, ind_kx_
     return y_,ind_kf_,ind_kx_
 
 def OU_kernel_np(length,x):
@@ -250,7 +244,7 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
     return draw_reshape
 
 def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
-                   num_rnn_grid_times,med_cov_grid):
+                   num_rnn_grid_times):
     """
     returns samples from GP at evenly-spaced gridpoints
     """
@@ -275,11 +269,11 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
         pad_len = grid_max-X_len #pad by this much
         padded_GP_draws = tf.concat([GP_draws,tf.zeros((n_mc_smps,pad_len,M))],1)
 
-        medcovs = tf.slice(med_cov_grid,[i,0,0],[1,-1,-1])
-        tiled_medcovs = tf.tile(medcovs,[n_mc_smps,1,1])
-        padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
+        #medcovs = tf.slice(med_cov_grid,[i,0,0],[1,-1,-1])
+        #tiled_medcovs = tf.tile(medcovs,[n_mc_smps,1,1])
+        #padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
 
-        Z = tf.concat([Z,padded_GPdraws_medcovs],0)
+        Z = tf.concat([Z,padded_GP_draws],0)
 
         return i+1,Z
 
@@ -290,7 +284,7 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     return Z
 
 def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
-              num_rnn_grid_times,med_cov_grid):
+              num_rnn_grid_times):
     """
     helper function. takes in (padded) raw datas, samples MGP for each observation,
     then feeds it all through the LSTM to get predictions.
@@ -308,12 +302,12 @@ def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
         predictions (unnormalized log probabilities) for each MC sample of each obs
     """
     Z = get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
-                       num_rnn_grid_times,med_cov_grid) #batchsize*num_MC x batch_maxseqlen x num_inputs
+                       num_rnn_grid_times) #batchsize*num_MC x batch_maxseqlen x num_inputs
     Z.set_shape([None,None,input_dim]) #somehow lost shape info, but need this
     N = tf.shape(T)[0] #number of observations
     #duplicate each entry of seqlens, to account for multiple MC samples per observation
     seqlen_dupe = tf.reshape(tf.tile(tf.expand_dims(num_rnn_grid_times,1),[1,n_mc_smps]),[N*n_mc_smps])
-
+    print(seqlen_dupe)
     #with tf.variable_scope("",reuse=True):
     outputs, states = tf.nn.dynamic_rnn(cell=stacked_lstm,inputs=Z,
                                             dtype=tf.float32,
@@ -348,9 +342,6 @@ def get_probs_and_accuracy(preds,O):
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
     return probs,accuracy
 
-def vectorize(l,ind):
-    return [l[i] for i in ind]
-
 if __name__ == "__main__":
     seed = 8675309
     rs = np.random.RandomState(seed) #fixed seed in np
@@ -359,12 +350,12 @@ if __name__ == "__main__":
     ##### Setup ground truth and sim some data from a GP
     #####
     num_encs=5000
-    M=17#10
-    n_covs=3#10
-    n_meds=2938#5
+    M=10
+    n_covs=10
+    n_meds=5
 
     (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-       values,ind_lvs,ind_times,meds_on_grid,covs) = dataset_prep() #sim_dataset(num_encs,M,n_covs,n_meds)
+       values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)
@@ -373,20 +364,18 @@ if __name__ == "__main__":
     tr_ind = train_test_perm[int(val_frac*N_tot):]
     Nte = len(te_ind); Ntr = len(tr_ind)
 
-    print tr_ind
-    print te_ind
     #Break everything out into train/test
-    covs_tr = [covs[i] for i in tr_ind]; covs_te = [covs[i] for i in te_ind]
-    labels_tr = [labels[i] for i in tr_ind]; labels_te = [labels[i] for i in te_ind]
-    times_tr = [times[i] for i in tr_ind]; times_te = [times[i] for i in te_ind]
-    values_tr = [values[i] for i in tr_ind]; values_te = [values[i] for i in te_ind]
-    ind_lvs_tr = [ind_lvs[i] for i in tr_ind]; ind_lvs_te = [ind_lvs[i] for i in te_ind]
-    ind_times_tr = [ind_times[i] for i in tr_ind]; ind_times_te = [ind_times[i] for i in te_ind]
-    meds_on_grid_tr = [meds_on_grid[i] for i in tr_ind]; meds_on_grid_te = [meds_on_grid[i] for i in te_ind]
-    num_obs_times_tr = [num_obs_times[i] for i in tr_ind]; num_obs_times_te = [num_obs_times[i] for i in te_ind]
-    num_obs_values_tr = [num_obs_values[i] for i in tr_ind]; num_obs_values_te = [num_obs_values[i] for i in te_ind]
-    rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
-    num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
+    covs_tr = covs[tr_ind,:]; covs_te = covs[te_ind,:]
+    labels_tr = labels[tr_ind]; labels_te = labels[te_ind]
+    times_tr = times[tr_ind]; times_te = times[te_ind]
+    values_tr = values[tr_ind]; values_te = values[te_ind]
+    ind_lvs_tr = ind_lvs[tr_ind]; ind_lvs_te = ind_lvs[te_ind]
+    ind_times_tr = ind_times[tr_ind]; ind_times_te = ind_times[te_ind]
+    meds_on_grid_tr = meds_on_grid[tr_ind]; meds_on_grid_te = meds_on_grid[te_ind]
+    num_obs_times_tr = num_obs_times[tr_ind]; num_obs_times_te = num_obs_times[te_ind]
+    num_obs_values_tr = num_obs_values[tr_ind]; num_obs_values_te = num_obs_values[te_ind]
+    rnn_grid_times_tr = rnn_grid_times[tr_ind]; rnn_grid_times_te = rnn_grid_times[te_ind]
+    num_rnn_grid_times_tr = num_rnn_grid_times[tr_ind]; num_rnn_grid_times_te = num_rnn_grid_times[te_ind]
 
     print("data fully setup!")
     sys.stdout.flush()
@@ -400,14 +389,14 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 25 #num epochs
-    batch_size = 4 #NOTE may want to play around with this
+    batch_size = 50 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
     n_hidden = 20 # hidden layer num of features; assumed same
     n_layers = 3 # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
-    input_dim = M+n_meds+n_covs #dimensionality of input sequence.
+    input_dim = M+n_covs #dimensionality of input sequence.
     n_mc_smps = 25
 
     # Create graph
@@ -422,7 +411,7 @@ if __name__ == "__main__":
     ind_kf = tf.placeholder(tf.int32, [None,None]) #index tasks in Y vector
     ind_kt = tf.placeholder(tf.int32, [None,None]) #index inputs in Y vector
     X = tf.placeholder("float", [None,None]) #grid points. batchsize x batch_maxgridlen
-    med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
+    #med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
 
     O = tf.placeholder(tf.int32, [None]) #labels. input is NOT as one-hot encoding; convert at each iter
     num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
@@ -461,7 +450,7 @@ if __name__ == "__main__":
     out_biases = tf.Variable(tf.random_normal([n_classes],stddev=0.1),name="Softmax/b")
 
     ##### Get predictions and feed into optimization
-    preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
+    preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times)
     probs,accuracy = get_probs_and_accuracy(preds,O)
 
     # Define optimization problem
@@ -478,11 +467,8 @@ if __name__ == "__main__":
     print("Graph setup!")
 
     #setup minibatch indices
-    print Ntr
-    print batch_size
     starts = np.arange(0,Ntr,batch_size)
     ends = np.arange(batch_size,Ntr+1,batch_size)
-    print ends
     if ends[-1]<Ntr:
         ends = np.append(ends,Ntr)
     num_batches = len(ends)
@@ -504,13 +490,12 @@ if __name__ == "__main__":
             batch_start = time()
             inds = perm[s:e]
             T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_rawdata(
-                    vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
-                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds))
-            #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
+                    times_tr[inds],values_tr[inds],ind_lvs_tr[inds],ind_times_tr[inds],
+                    rnn_grid_times_tr[inds],meds_on_grid_tr[inds],covs_tr[inds,:])
             feed_dict={Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
-               med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
-               num_obs_values:vectorize(num_obs_values_tr,inds),
-               num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
+               num_obs_times:num_obs_times_tr[inds],
+               num_obs_values:num_obs_values_tr[inds],
+               num_rnn_grid_times:num_rnn_grid_times_tr[inds],O:labels_tr[inds]}
 
             loss_,_ = sess.run([loss,train_op],feed_dict)
 
@@ -525,7 +510,7 @@ if __name__ == "__main__":
                 #on the val set, so you know if it generalizes well further back in time as well
                 test_t = time()
                 feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
-                       med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,
+                       num_obs_times:num_obs_times_te,
                        num_obs_values:num_obs_values_te,num_rnn_grid_times:num_rnn_grid_times_te,O:labels_te}
                 te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)
                 te_auc = roc_auc_score(labels_te, te_probs)
