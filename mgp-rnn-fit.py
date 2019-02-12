@@ -58,7 +58,7 @@ def add_high_freq(end_time,freq,f_i):
     However, the hours granularity is too large..so change to minutes which is 0.000133 minutes
 
     """
-    num_obs = ceil(1/0.000133)
+    num_obs = ceil(end_time/0.000133)
     y_i = (np.random.normal(0,1,num_obs)).tolist()
     ind_kf = [f_i]*num_obs
     ind_kt = (np.arange(num_obs)).tolist()
@@ -80,7 +80,7 @@ def retrieve_sim_dataset():
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
-def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
+def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.02):
     """
     Returns everything we need to run the model.
 
@@ -94,8 +94,10 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
     #end_times = np.random.uniform(10,120,num_encs) #last observation time of the encounter
     #end time converted to in minutes
     end_times = np.random.uniform(600,800, num_encs)
-    num_obs_times = np.random.poisson(end_times,num_encs)+3 #number of observation time points per encounter, increase with  longer series
-    num_obs_values = np.array(num_obs_times*M*trainfrac,dtype="int")
+    obs = np.vectorize(lambda x: ceil(x/0.000133))
+    num_obs_times = obs(end_times)
+    #num_obs_times = np.random.poisson(end_times,num_encs)+3 #number of observation time points per encounter, increase with  longer series
+    num_obs_values = np.array(num_obs_times*(1+(M-1)*trainfrac),dtype="int")
     #number of inputs to RNN. will be a grid on integers, starting at 0 and ending at next integer after end_time
     num_rnn_grid_times = np.array(np.floor(end_times)+1,dtype="int")
     rnn_grid_times = []
@@ -115,7 +117,8 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
         sys.stdout.flush()
         if i%500==0:
             print('%d/%d' %(i,num_encs))
-        obs_times = np.insert(np.sort(np.random.uniform(0,end_times[i],num_obs_times[i]-1)),0,0)
+        #obs_times = np.insert(np.sort(np.random.uniform(0,end_times[i],num_obs_times[i]-1)),0,0)
+        obs_times = (np.arange(num_obs_times[i])*0.000133).tolist()
         #print obs_times
         T.append(obs_times)
         l = labels[i]
@@ -138,17 +141,17 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
     Y = np.array(Y); ind_kf = np.array(ind_kf); ind_kt = np.array(ind_kt)
     meds_on_grid = np.array(meds_on_grid)
     rnn_grid_times = np.array(rnn_grid_times)
-    #pickle.dump(num_obs_times, open('num_obs_times.pickle','w'))
-    #pickle.dump(num_obs_values, open('num_obs_values.pickle','w'))
-    #pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times.pickle','w'))
-    #pickle.dump(rnn_grid_times, open('rnn_grid_times.pickle','w'))
-    #pickle.dump(labels, open('labels.pickle','w'))
-    #pickle.dump(T, open('T.pickle','w'))
-    #pickle.dump(Y, open('Y.pickle','w'))
-    #pickle.dump(ind_kf, open('ind_kf.pickle','w'))
-    #pickle.dump(ind_kt, open('ind_kt.pickle','w'))
-    #pickle.dump(meds_on_grid, open('meds_on_grid.pickle','w'))
-    #pickle.dump(baseline_covs, open('baseline_covs.pickle','w'))
+    pickle.dump(num_obs_times, open('num_obs_times.pickle','w'))
+    pickle.dump(num_obs_values, open('num_obs_values.pickle','w'))
+    pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times.pickle','w'))
+    pickle.dump(rnn_grid_times, open('rnn_grid_times.pickle','w'))
+    pickle.dump(labels, open('labels.pickle','w'))
+    pickle.dump(T, open('T.pickle','w'))
+    pickle.dump(Y, open('Y.pickle','w'))
+    pickle.dump(ind_kf, open('ind_kf.pickle','w'))
+    pickle.dump(ind_kt, open('ind_kt.pickle','w'))
+    pickle.dump(meds_on_grid, open('meds_on_grid.pickle','w'))
+    pickle.dump(baseline_covs, open('baseline_covs.pickle','w'))
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
@@ -193,7 +196,8 @@ def sim_multitask_GP(times,length,noise_vars,K_f,trainfrac):
     perm = np.random.permutation(n)
     n_train = int(trainfrac*n)
     train_inds = perm[:n_train]
-
+    high_freq_ind = np.where(ind_kx==0)
+    train_inds = np.unique(np.concatenate((high_freq_ind,train_inds)))
     y_ = y[train_inds]
     ind_kf_ = ind_kf[train_inds]
     ind_kx_ = ind_kx[train_inds]
