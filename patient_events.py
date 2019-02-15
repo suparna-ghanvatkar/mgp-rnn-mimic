@@ -3,7 +3,14 @@ import numpy as np
 from math import ceil
 
 def dataset_prep():
-    subject_ids = [20, 30, 33, 52, 85, 123, 124, 135, 2492, 2488]
+    fsub = open('subject_presence','r')
+    lines = fsub.read().splitlines()
+    fsub.close()
+    lines = [(l.split()[0], l.split()[1]) for l in lines]
+    lines = [x for x in lines if x[1]!='absent']
+    subject_ids = [int(x[0]) for x in lines]
+    subject_indices = [x[1] for x in lines]
+    #subject_ids = [20, 30, 33, 52, 85, 123, 124, 135, 2492, 2488]
     #the episode1 gives baseline and mortality label
     #the episode 1 timeseries gives the timed events to be fed to rnn
     #the input events CV has both the subjects' data
@@ -28,12 +35,12 @@ def dataset_prep():
     nmeds = medseries.ITEMID.unique()
     med_map = {n:i for i,n in enumerate(nmeds)}
 
-    for sub in subject_ids:
+    for index, sub in enumerate(subject_ids):
         Y_i = []
         ind_kf_i = []
         ind_kt_i = []
-        stays = pd.read_csv('~/mimic3-benchmarks/data/root/train/'+str(sub)+'/stays.csv', parse_dates=True)
-        timeline = pd.read_csv('~/mimic3-benchmarks/data/root/train/'+str(sub)+'/episode1_timeseries.csv')
+        stays = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/stays.csv', parse_dates=True)
+        timeline = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/episode1_timeseries.csv')
         intime = pd.to_datetime(stays['INTIME'])
         label = stays['MORTALITY_INHOSPITAL'][0]
         timeline = timeline[timeline.Hours>=0]
@@ -107,17 +114,17 @@ def dataset_prep():
         ind_kt.append(ind_kt_i)
         T.append(T_i.tolist())
         labels.append(label)
-    #print num_obs_times
-    #print num_obs_values
-    #print num_rnn_grid_times
-    #print rnn_grid_times
-    #print labels
-    #print T
-    #print Y
-    #print ind_kf
-    #print ind_kt
-    #print meds_on_grid
-    #print baseline_covs
+    print num_obs_times
+    print num_obs_values
+    print num_rnn_grid_times
+    print rnn_grid_times
+    print labels
+    print T
+    print Y
+    print ind_kf
+    print ind_kt
+    print meds_on_grid
+    print baseline_covs
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
 if __name__=="__main__":
