@@ -229,10 +229,10 @@ if __name__ == "__main__":
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
-    num_encs=10#5000#10000
-    M=5#750#17#10
+    num_encs=50#5000#10000
+    M=75#17#10
     n_covs=3#10
-    n_meds=5#2938#5
+    n_meds=30#2938#5
     if args.high=="low" and args.sim=="sim":
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
             values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
@@ -281,7 +281,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 3 #NOTE may want to play around with this
+    batch_size = 5 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters

@@ -37,10 +37,12 @@ def dataset_prep():
     subject_ids = [int(x[0]) for x in lines]
     subject_indices = [x[1] for x in lines]
     cvmedseries = pd.read_csv('/data/MIMIC3/INPUTEVENTS_CV.csv', low_memory=False)
+    cvmedseries = cvmedseries[cvmedseries['ORIGINALROUTE'].isin(['Intravenous', 'IV Drip', 'Drip'])]
     cvmedseries = cvmedseries[cvmedseries.SUBJECT_ID.isin(subject_ids)]
     nmeds = cvmedseries.ITEMID.unique()
     cvsubs = cvmedseries.SUBJECT_ID.unique()
     mvmedseries = pd.read_csv('/data/MIMIC3/INPUTEVENTS_MV.csv', low_memory=False)
+    mvmedseries = mvmedseries[mvmedseries.ORDERCATEGORYDESCRIPTION=='Continuous IV']
     mvmedseries = mvmedseries[mvmedseries.SUBJECT_ID.isin(subject_ids)]
     mvsubs = mvmedseries.SUBJECT_ID.unique()
     nmeds = np.unique(np.concatenate((nmeds,mvmedseries.ITEMID.unique())))
@@ -54,7 +56,9 @@ def dataset_prep():
             Sseries = getcvseries(cvmedseries[cvmedseries.SUBJECT_ID==sub], intime, endtime, med_map)
         elif sub in mvsubs:
             Sseries = getmvseries(mvmedseries[mvmedseries.SUBJECT_ID==sub], intime, endtime, med_map)
-        np.savetxt(str(sub)+'.med', Sseries, delimiter=',', newline='\n')
+        #np.savetxt(str(sub)+'.med', Sseries, delimiter=',', newline='\n')
+        meds = pd.DataFrame(data=Sseries)
+        meds.to_csv(str(sub)+'.wav', index=False)
 
 
 if __name__=="__main__":
