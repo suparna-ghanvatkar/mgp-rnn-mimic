@@ -44,6 +44,8 @@ def dataset_prep():
     mvmedseries = pd.read_csv('/data/MIMIC3/INPUTEVENTS_MV.csv', low_memory=False)
     mvmedseries = mvmedseries[mvmedseries.ORDERCATEGORYDESCRIPTION=='Continuous IV']
     mvmedseries = mvmedseries[mvmedseries.SUBJECT_ID.isin(subject_ids)]
+    #the rewritten entries are incorrect and hence removed
+    mvmedseries = mvmedseries[mvmedseries.STATUSDESCRIPTION!='Rewritten']
     mvsubs = mvmedseries.SUBJECT_ID.unique()
     nmeds = np.unique(np.concatenate((nmeds,mvmedseries.ITEMID.unique())))
     med_map = {n:i for i,n in enumerate(nmeds)}
