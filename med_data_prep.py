@@ -1,32 +1,85 @@
 import pandas as pd
 import numpy as np
-from math import ceil
+from math import ceil, isnan, floor
 
-def getcvseries(med, intime, outtime, medmap):
-    rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[0])+1)
+def getcvseries(med, intime, outtime, medmap, stay_no):
+    rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+    starttime = intime.dt.round('1h')
+    endlen = len(rnn_grid_times)
     medtimes = pd.to_datetime(med.CHARTTIME)
-    medt = medtimes.apply(lambda x: x-intime)[0]
+    medt = medtimes.apply(lambda x: x-starttime)[stay_no]
     medt = medt.dt.total_seconds()/3600
     med.CHARTTIME = medt
+    #medications have to be within the stay
     med = med[med.CHARTTIME>=0]
+    med = med[med.CHARTTIME<endlen]
     med = med.sort_values('CHARTTIME')
-    medtimes = med.CHARTTIME.unique()
-    meds = np.empty((len(rnn_grid_times),len(medmap.keys())))
-
+    #medtimes = med.CHARTTIME.unique()
+    meds = np.zeros((len(rnn_grid_times),len(medmap.keys())))
+    for m,v in medmap.iteritems():
+        medseries = med[med.ITEMID==m]
+        for row in medseries.itertuples():
+            #the rows either have amounts or else have rates
+            amount = getattr(row, 'AMOUNT')
+            rate = getattr(row, 'RATE')
+            charttime = getattr(row, 'CHARTTIME')
+            if not isnan(amount):
+                #not if 14.5 is charttime, the it was given between 13-14 hr and also between 14-15 hr...but as rate not present, just add to end of 15th hour
+                prevhr = row.charttime-floor(charttime)
+                thishr = 1.0-prevhr
+                meds[floor(charttime), v] += (prevhr*amount)
+                meds[ceil(charttime), v] += (thishr*amount)
+            elif not isnan(rate):
+                if 'min' in getattr(row,'RATEUOM'):
+                    #convert to per hours and consider:
+                    rate = rate*60.0
+                else:
+                    rate = rate*1.0
+                thishr = ceil(charttime)-charttime
+                meds[int(ceil(charttime)), v] += (thishr*rate)
+                meds[int(ceil(charttime))+1:, v] += rate
+            else:
+                #both are nan skip
+                continue
     return meds
 
-def getmvseries(med, intime, outtime, medmap):
-    rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[0])+1)
-    medtimes = pd.to_datetime(med.STARTTIME)
-    medt = medtimes.apply(lambda x: x-intime)[0]
+def getmvseries(med, intime, outtime, medmap, stay_no):
+    rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+    starttime = intime.dt.round('1h')
+    endlen = len(rnn_grid_times)
+    medstimes = pd.to_datetime(med.STARTTIME)
+    medetimes = pd.to_datetime(med.ENDTIME)
+    medt = medstimes.apply(lambda x: x-starttime)[stay_no]
     medt = medt.dt.total_seconds()/3600
     med.STARTTIME = medt
+    #the start time of medications has to be within the stay
     med = med[med.STARTTIME>=0]
+    med = med[med.STARTTIME<endlen]
     med = med.sort_values('STARTTIME')
-    medtimes = med.STARTTIME.unique()
-    meds = np.empty((len(rnn_grid_times),len(medmap.keys())))
-
+    medt = medetimes.apply(lambda x: x-starttime)[stay_no]
+    medt = medt.dt.total_seconds()/3600
+    med.ENDTIME = medt
+    med = med[med.ENDTIME>=0]
+    #medtimes = med.CHARTTIME.unique()
+    meds = np.zeros((len(rnn_grid_times),len(medmap.keys())))
+    for m,v in medmap.iteritems():
+        medseries = med[med.ITEMID==m]
+        for row in medseries.itertuples():
+            rate = getattr(row, 'RATE')
+            starttime = getattr(row, 'STARTTIME')
+            endtime = getattr(row, 'ENDTIME')
+            if 'min' in getattr(row,'RATEUOM'):
+                #convert to per hours and consider:
+                rate = rate*60.0
+            else:
+                rate = rate*1.0
+            thishr = ceil(starttime)-starttime
+            meds[int(ceil(starttime)), v] += (thishr*rate)
+            meds[int(ceil(starttime))+1:int(floor(endtime)), v] += rate
+            lasthr = endtime - floor(endtime)
+            meds[int(ceil(endtime)), v] += (lasthr*rate)
     return meds
+
 
 def dataset_prep():
     fsub = open('subject_presence','r')
@@ -35,7 +88,8 @@ def dataset_prep():
     lines = [(l.split()[0], l.split()[1]) for l in lines]
     lines = [x for x in lines if x[1]!='absent']
     subject_ids = [int(x[0]) for x in lines]
-    subject_indices = [x[1] for x in lines]
+    #subject_indices = [x[1] for x in lines]
+    print("Reading data...")
     cvmedseries = pd.read_csv('/data/MIMIC3/INPUTEVENTS_CV.csv', low_memory=False)
     cvmedseries = cvmedseries[cvmedseries['ORIGINALROUTE'].isin(['Intravenous', 'IV Drip', 'Drip'])]
     cvmedseries = cvmedseries[cvmedseries.SUBJECT_ID.isin(subject_ids)]
@@ -44,23 +98,29 @@ def dataset_prep():
     mvmedseries = pd.read_csv('/data/MIMIC3/INPUTEVENTS_MV.csv', low_memory=False)
     mvmedseries = mvmedseries[mvmedseries.ORDERCATEGORYDESCRIPTION=='Continuous IV']
     mvmedseries = mvmedseries[mvmedseries.SUBJECT_ID.isin(subject_ids)]
+    print("Reading data done")
     #the rewritten entries are incorrect and hence removed
     mvmedseries = mvmedseries[mvmedseries.STATUSDESCRIPTION!='Rewritten']
     mvsubs = mvmedseries.SUBJECT_ID.unique()
-    nmeds = np.unique(np.concatenate((nmeds,mvmedseries.ITEMID.unique())))
+    #nmeds = np.unique(np.concatenate((nmeds,mvmedseries.ITEMID.unique())))
+    nmeds = {225158, 30131, 30045, 30025, 225166}
     med_map = {n:i for i,n in enumerate(nmeds)}
     for index,sub in enumerate(subject_ids):
-        stays = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/stays.csv', parse_dates=True)
+        stays = pd.read_csv('/data/suparna/MGP_data/root/'+str(sub)+'/stays.csv', parse_dates=True)
+        print sub
         #timeline = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/episode1_timeseries.csv')
         intime = pd.to_datetime(stays['INTIME'])
-        endtime = pd.to_datetime(stays['OUTTIME'])
-        if sub in cvsubs:
-            Sseries = getcvseries(cvmedseries[cvmedseries.SUBJECT_ID==sub], intime, endtime, med_map)
-        elif sub in mvsubs:
-            Sseries = getmvseries(mvmedseries[mvmedseries.SUBJECT_ID==sub], intime, endtime, med_map)
-        #np.savetxt(str(sub)+'.med', Sseries, delimiter=',', newline='\n')
-        meds = pd.DataFrame(data=Sseries)
-        meds.to_csv(str(sub)+'.wav', index=False)
+        outtime = pd.to_datetime(stays['OUTTIME'])
+        #starttime = intime.dt.round('1h')
+        for s in range(stays.shape[0]):
+            print("stay:%s"%(s))
+            if sub in cvsubs:
+                Sseries = getcvseries(cvmedseries[cvmedseries.SUBJECT_ID==sub], intime, outtime, med_map, s)
+            elif sub in mvsubs:
+                Sseries = getmvseries(mvmedseries[mvmedseries.SUBJECT_ID==sub], intime, outtime, med_map, s)
+            #np.savetxt(str(sub)+'.med', Sseries, delimiter=',', newline='\n')
+            meds = pd.DataFrame(data=Sseries, columns=med_map.keys())
+            meds.to_csv('/data/suparna/MGP_data/medicines/'+str(sub)+'_stay'+str(s)+'.med', index=False)
 
 
 if __name__=="__main__":
