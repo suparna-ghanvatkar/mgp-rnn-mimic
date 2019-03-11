@@ -2,8 +2,21 @@ import pandas as pd
 import numpy as np
 from math import ceil, isnan, floor
 
+def isnat(dt):
+    dtyp = str(dt.dtype)
+    if 'datetime64' in dtyp or 'timedelta64' in dtyp:
+        return dt.view('i8')==np.datetime64('NAT').view('i8')
+    return False
+
 def getcvseries(med, intime, outtime, medmap, stay_no):
-    rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+    #print intime[stay_no]
+    #print outtime[stay_no]
+    #if isnat(intime[stay_no]) and isnat(outtime[stay_no]):
+    #    return -1
+    try:
+        rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+    except:
+        return -1
     starttime = intime.dt.round('1h')
     endlen = len(rnn_grid_times)
     medtimes = pd.to_datetime(med.CHARTTIME)
@@ -30,21 +43,30 @@ def getcvseries(med, intime, outtime, medmap, stay_no):
                 meds[floor(charttime), v] += (prevhr*amount)
                 meds[ceil(charttime), v] += (thishr*amount)
             elif not isnan(rate):
-                if 'min' in getattr(row,'RATEUOM'):
-                    #convert to per hours and consider:
-                    rate = rate*60.0
-                else:
-                    rate = rate*1.0
-                thishr = ceil(charttime)-charttime
-                meds[int(ceil(charttime)), v] += (thishr*rate)
-                meds[int(ceil(charttime))+1:, v] += rate
+                rateuom = getattr(row,'RATEUOM')
+                try:
+                    if 'min' in rateuom:
+                        #convert to per hours and consider:
+                        rate = rate*60.0
+                    else:
+                        rate = rate*1.0
+                    thishr = ceil(charttime)-charttime
+                    meds[int(ceil(charttime)), v] += (thishr*rate)
+                    meds[int(ceil(charttime))+1:, v] += rate
+                except:
+                    continue
             else:
                 #both are nan skip
                 continue
     return meds
 
 def getmvseries(med, intime, outtime, medmap, stay_no):
-    rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+    #if isnat(intime[stay_no]) and isnat(outtime[stay_no]):
+    #    return -1
+    try:
+        rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+    except:
+        return -1
     starttime = intime.dt.round('1h')
     endlen = len(rnn_grid_times)
     medstimes = pd.to_datetime(med.STARTTIME)
@@ -68,16 +90,20 @@ def getmvseries(med, intime, outtime, medmap, stay_no):
             rate = getattr(row, 'RATE')
             starttime = getattr(row, 'STARTTIME')
             endtime = getattr(row, 'ENDTIME')
-            if 'min' in getattr(row,'RATEUOM'):
-                #convert to per hours and consider:
-                rate = rate*60.0
-            else:
-                rate = rate*1.0
-            thishr = ceil(starttime)-starttime
-            meds[int(ceil(starttime)), v] += (thishr*rate)
-            meds[int(ceil(starttime))+1:int(floor(endtime)), v] += rate
-            lasthr = endtime - floor(endtime)
-            meds[int(ceil(endtime)), v] += (lasthr*rate)
+            rateuom = getattr(row,'RATEUOM')
+            try:
+                if 'min' in rateuom:
+                    #convert to per hours and consider:
+                    rate = rate*60.0
+                else:
+                    rate = rate*1.0
+                thishr = ceil(starttime)-starttime
+                meds[int(ceil(starttime)), v] += (thishr*rate)
+                meds[int(ceil(starttime))+1:int(floor(endtime)), v] += rate
+                lasthr = endtime - floor(endtime)
+                meds[int(ceil(endtime)), v] += (lasthr*rate)
+            except:
+                continue
     return meds
 
 
@@ -118,6 +144,8 @@ def dataset_prep():
                 Sseries = getcvseries(cvmedseries[cvmedseries.SUBJECT_ID==sub], intime, outtime, med_map, s)
             elif sub in mvsubs:
                 Sseries = getmvseries(mvmedseries[mvmedseries.SUBJECT_ID==sub], intime, outtime, med_map, s)
+            if isinstance(Sseries,(int, long)):
+                continue
             #np.savetxt(str(sub)+'.med', Sseries, delimiter=',', newline='\n')
             meds = pd.DataFrame(data=Sseries, columns=med_map.keys())
             meds.to_csv('/data/suparna/MGP_data/medicines/'+str(sub)+'_stay'+str(s)+'.med', index=False)
