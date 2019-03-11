@@ -229,23 +229,30 @@ if __name__ == "__main__":
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
-    num_encs=50#5000#10000
-    M=75#17#10
-    n_covs=3#10
-    n_meds=30#2938#5
     if args.high=="low" and args.sim=="sim":
+        num_encs=50#5000#10000
+        M=75#17#10
+        n_covs=3#10
+        n_meds=30#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
             values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.high=="low" and args.sim=="prev":
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset_low()
     elif args.high=="high" and args.sim=="sim":
+        num_encs=50#5000#10000
+        M=75#17#10
+        n_covs=3#10
+        n_meds=30#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
         #elif args.high=="high" and args.sim=="prev":
+    elif args.high=="low" and args.sim=="data":
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_baseline_mgp()
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) =retrieve_sim_dataset()
+        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)

@@ -1,2 +1,1 @@
-# MGP-RNN
-A TensorFlow implementation of "Learning to Detect Sepsis with a Multitask Gaussian Process RNN Classifier", ICML 2017.
+Tensorflow implementation to detect in-hospital mortality using MIMIC waveform data as well.
