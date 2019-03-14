@@ -28,6 +28,13 @@ def dataset_prep():
     #sigs = []
     print("Reading records")
 
+    fdone = open('waveforms_processed','r')
+    subs_done = []
+    for line in fdone:
+        sub = int(line.split(' ')[2])
+        subs_done.append(sub)
+    subs_done = subs_done[:-1]
+    fdone.close()
     for line in fwaves:
         line = line.strip('\n')
         path = os.path.join('/data/suparna/MatchedSubset_MIMIC3/',line)
@@ -39,6 +46,8 @@ def dataset_prep():
         sub = int(s[1:])
         if sub not in subject_ids:
             continue
+        if sub in subs_done:
+            continue
         waves[sub].append((day, time, path))
         '''
         try:
@@ -49,6 +58,7 @@ def dataset_prep():
         except ValueError:
             continue
         '''
+    print("%s subjects to go"%(len(waves.keys())))
     #sigfile = open('various_signals.pickle','r')
     #pickle.dump(sigs, sigfile)
     #sigs= pickle.load(sigfile)
@@ -57,7 +67,8 @@ def dataset_prep():
     #sig_indices = {x:i for i,x in enumerate(sigs)}
     #sig_len = len(sigs)
     #sig_len = 1
-    for sub in waves.keys():
+    waves_subs = waves.keys()
+    for sub in waves_subs:
         print("Processing subject %s"%(sub))
         stays = pd.read_csv('/data/suparna/MGP_data/root/'+str(sub)+'/stays.csv', parse_dates=True)
         stays['INTIME'] = pd.to_datetime(stays['INTIME'])

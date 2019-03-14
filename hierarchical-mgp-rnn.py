@@ -19,11 +19,14 @@ from data_prep import dataset_prep
 import pickle
 from math import ceil
 import argparse
-from util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
-from simulations import *
-from patient_events import *
+from hierarchical_util import *
+#from hierarchical_util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
+#from simulations import *
+from hierarchical_simulations import *
+#from tf.keras.layers import *
+#from patient_events import *
 
-#os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 #####
 ##### Tensorflow functions
@@ -175,15 +178,17 @@ def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     returns:
         predictions (unnormalized log probabilities) for each MC sample of each obs
     """
+
     Z = get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
                        num_rnn_grid_times,med_cov_grid) #batchsize*num_MC x batch_maxseqlen x num_inputs
     Z.set_shape([None,None,input_dim]) #somehow lost shape info, but need this
+    x = tf.concat([Z, waveform_outputs],1)
     N = tf.shape(T)[0] #number of observations
     #duplicate each entry of seqlens, to account for multiple MC samples per observation
     seqlen_dupe = tf.reshape(tf.tile(tf.expand_dims(num_rnn_grid_times,1),[1,n_mc_smps]),[N*n_mc_smps])
 
     #with tf.variable_scope("",reuse=True):
-    outputs, states = tf.nn.dynamic_rnn(cell=stacked_lstm,inputs=Z,
+    outputs, states = tf.nn.dynamic_rnn(cell=stacked_lstm,inputs=x,
                                             dtype=tf.float32,
                                             sequence_length=seqlen_dupe)
 
@@ -224,47 +229,23 @@ if __name__ == "__main__":
     rs = np.random.RandomState(seed) #fixed seed in np
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
-    parser.add_argument('sim', type=str, help='prev/sim/data/prevdata')
+    #parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
+    parser.add_argument('sim', type=str, help='prevsim/sim/data/prevdata')
     args = parser.parse_args()
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
-    if args.high=="low" and args.sim=="sim":
-        num_encs=50#5000#10000
-        M=75#17#10
+    if args.sim=="sim":
+        num_encs=20#100#10000
+        M=10#17#10
         n_covs=3#10
-        n_meds=30#2938#5
+        n_meds=10#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-            values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
-    elif args.high=="low" and args.sim=="prev":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset_low()
-    elif args.high=="high" and args.sim=="sim":
-        num_encs=50#5000#10000
-        M=75#17#10
-        n_covs=3#10
-        n_meds=30#2938#5
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
-        #elif args.high=="high" and args.sim=="prev":
-    elif args.high=="low" and args.sim=="data":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_baseline_mgp()
-        num_enc = len(num_obs_times)
-        M = 25
-        n_meds = 5
-        n_covs = 9
-    elif args.high=="low" and args.sim=="prevdata":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_mimic_dataset()
-        num_enc = len(num_obs_times)
-        M = 25
-        n_meds = 5
-        n_covs = 9
+        values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
+        values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = retrieve_hierarchical_sim()
+
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)
@@ -287,6 +268,7 @@ if __name__ == "__main__":
     num_obs_values_tr = [num_obs_values[i] for i in tr_ind]; num_obs_values_te = [num_obs_values[i] for i in te_ind]
     rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
+    H_tr = [high_freq[i] for i in tr_ind]; H_te = [high_freq[i] for i in te_ind]
 
     print("data fully setup!")
     sys.stdout.flush()
@@ -304,6 +286,7 @@ if __name__ == "__main__":
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
+    #n_hidden_waveform = 10
     n_hidden = 20 # hidden layer num of features; assumed same
     n_layers = 3 # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
@@ -328,6 +311,8 @@ if __name__ == "__main__":
     num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
     num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
     num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
+
+    waveform = tf.placeholder("float",[None,None,450000])
 
     N = tf.shape(Y)[0]
 
@@ -354,6 +339,11 @@ if __name__ == "__main__":
     ### RNN params
 
     # Create network
+    #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
+    #lstm_out = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(input_dim))(waveform)
+    #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
+    waveform_cell = tf.contrib.rnn.LSTMCell(input_dim)
+    waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
     stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
 
     # Weights at the last layer given deep LSTM output
@@ -387,8 +377,8 @@ if __name__ == "__main__":
         ends = np.append(ends,Ntr)
     num_batches = len(ends)
 
-    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te = pad_rawdata(
-                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te)
+    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te, H_pad_te = pad_data(
+                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te)
 
     ##### Main training loop
     saver = tf.train.Saver(max_to_keep = None)
@@ -403,11 +393,11 @@ if __name__ == "__main__":
         for s,e in zip(starts,ends):
             batch_start = time()
             inds = perm[s:e]
-            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_rawdata(
+            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
-                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds))
+                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
             #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
-            feed_dict={Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+            feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
@@ -424,7 +414,7 @@ if __name__ == "__main__":
                 #from the event time, as well as just checking performance at terminal time
                 #on the val set, so you know if it generalizes well further back in time as well
                 test_t = time()
-                feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
+                feed_dict={waveform:H_pad_te, Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
                        med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,
                        num_obs_values:num_obs_values_te,num_rnn_grid_times:num_rnn_grid_times_te,O:labels_te}
                 te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)

@@ -14,10 +14,16 @@ def getcvseries(med, intime, outtime, medmap, stay_no):
     #if isnat(intime[stay_no]) and isnat(outtime[stay_no]):
     #    return -1
     try:
-        rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+        #print("time info")
+        #print inttime[stay_no], outtime[stay_no]
+        starttime = intime.dt.round('1h')
+        rnn_grid_times = np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1)
+        #print len(rnn_grid_times)
     except:
         return -1
-    starttime = intime.dt.round('1h')
+    print "time info"
+    print intime[stay_no], outtime[stay_no]
+    print len(rnn_grid_times)
     endlen = len(rnn_grid_times)
     medtimes = pd.to_datetime(med.CHARTTIME)
     medt = medtimes.apply(lambda x: x-starttime)[stay_no]
@@ -64,10 +70,13 @@ def getmvseries(med, intime, outtime, medmap, stay_no):
     #if isnat(intime[stay_no]) and isnat(outtime[stay_no]):
     #    return -1
     try:
-        rnn_grid_times = np.arange(ceil(((outtime-intime).dt.total_seconds()/(60*60))[stay_no])+1)
+        starttime = intime.dt.round('1h')
+        rnn_grid_times = np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1)
     except:
         return -1
-    starttime = intime.dt.round('1h')
+    print "time info"
+    print intime[stay_no], outtime[stay_no]
+    print len(rnn_grid_times)
     endlen = len(rnn_grid_times)
     medstimes = pd.to_datetime(med.STARTTIME)
     medetimes = pd.to_datetime(med.ENDTIME)
@@ -133,7 +142,7 @@ def dataset_prep():
     med_map = {n:i for i,n in enumerate(nmeds)}
     for index,sub in enumerate(subject_ids):
         stays = pd.read_csv('/data/suparna/MGP_data/root/'+str(sub)+'/stays.csv', parse_dates=True)
-        print sub
+        print "subject "+str(sub)
         #timeline = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/episode1_timeseries.csv')
         intime = pd.to_datetime(stays['INTIME'])
         outtime = pd.to_datetime(stays['OUTTIME'])
@@ -144,10 +153,13 @@ def dataset_prep():
                 Sseries = getcvseries(cvmedseries[cvmedseries.SUBJECT_ID==sub], intime, outtime, med_map, s)
             elif sub in mvsubs:
                 Sseries = getmvseries(mvmedseries[mvmedseries.SUBJECT_ID==sub], intime, outtime, med_map, s)
+            else:
+                continue
             if isinstance(Sseries,(int, long)):
                 continue
             #np.savetxt(str(sub)+'.med', Sseries, delimiter=',', newline='\n')
             meds = pd.DataFrame(data=Sseries, columns=med_map.keys())
+            print("writing to csv")
             meds.to_csv('/data/suparna/MGP_data/medicines/'+str(sub)+'_stay'+str(s)+'.med', index=False)
 
 

@@ -62,7 +62,7 @@ def baselines():
             #print data
             df = pd.DataFrame(data=[data], columns=cols)
             #print df
-            df.to_csv(dest_path+str(sub)+'/baseline'+str(stay_no)+'.csv')
+            df.to_csv(dest_path+str(sub)+'/baseline'+str(stay_no)+'.csv', index=False)
 
 if __name__=="__main__":
     baselines()

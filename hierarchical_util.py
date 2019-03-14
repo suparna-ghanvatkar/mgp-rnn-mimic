@@ -10,7 +10,7 @@ Some useful functions.
 import tensorflow as tf
 import numpy as np
 
-def pad_rawdata(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs):
+def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
     """
     Helper func. Pad raw data so it's in a padded array to be fed into the graph,
     since we can't pass in arrays of arrays directly.
@@ -25,9 +25,11 @@ def pad_rawdata(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs):
             meds_on_grid: list of arrays, each is grid_size x num_meds
             covs: matrix of baseline covariates for each patient.
                 to be tiled at each time and combined w meds
+            Hi: high frequency waveform data
     Returns:
         Padded 2d np arrays of data, now of dim batchsize x batch_maxlen
     """
+    H = Hi
     N = np.shape(T)[0] #num in batch
     num_meds = np.shape(meds_on_grid[0])[1]
     num_covs = np.shape(covs)[1]
@@ -47,17 +49,27 @@ def pad_rawdata(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs):
     meds_cov_pad = np.zeros((N,grid_maxlen,num_meds+num_covs))
     X_pad = np.zeros((N,grid_maxlen))
 
+    H_lens = np.array([len(h) for h in H])
+    #H_maxlen = np.max(H_lens)
+    H_maxlen = grid_maxlen*450000
+    H_pad = np.zeros((N,H_maxlen))
+
     for i in range(N):
+        H_pad[i,:H_lens[i]] = H[i]
         T_pad[i,:T_lens[i]] = T[i]
         Y_pad[i,:Y_lens[i]] = Y[i]
         ind_kf_pad[i,:Y_lens[i]] = ind_kf[i]
         ind_kt_pad[i,:Y_lens[i]] = ind_kt[i]
-        print i, grid_lens[i], len(X[i])
+        #print i, grid_lens[i], len(X[i])
         X_pad[i,:grid_lens[i]] = X[i]
         meds_cov_pad[i,:grid_lens[i],:num_meds] = meds_on_grid[i]
         meds_cov_pad[i,:grid_lens[i],num_meds:] = np.tile(covs[i],(grid_lens[i],1))
 
-    return T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
+    #if H_maxlen!=(grid_maxlen*450000):
+    #    print "tafavat"+str(H_maxlen)+" "+str(grid_maxlen)
+    H_pad = H_pad.reshape((N,grid_maxlen,450000))
+
+    return T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad
 
 #####
 ##### Some TensorFlow functions used in the modeling
