@@ -31,6 +31,7 @@ def prep_baseline_mgp():
     lines = [(l.split()[0], l.split()[1]) for l in lines]
     lines = [x for x in lines if x[1]!='absent']
     subject_ids = [int(x[0]) for x in lines]
+    subject_ids = subject_ids[:30]
     #subject_ids = [20, 30, 33, 52, 85, 123, 124, 135, 2492, 2488]
     #the episode1 gives baseline and mortality label
     #the episode 1 timeseries gives the timed events to be fed to rnn

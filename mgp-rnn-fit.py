@@ -23,7 +23,7 @@ from util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_L
 from simulations import *
 from patient_events import *
 
-#os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 #####
 ##### Tensorflow functions
@@ -232,9 +232,9 @@ if __name__ == "__main__":
     #####
     if args.high=="low" and args.sim=="sim":
         num_encs=50#5000#10000
-        M=75#17#10
+        M=15#17#10
         n_covs=3#10
-        n_meds=30#2938#5
+        n_meds=10#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
             values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.high=="low" and args.sim=="prev":
@@ -242,9 +242,9 @@ if __name__ == "__main__":
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset_low()
     elif args.high=="high" and args.sim=="sim":
         num_encs=50#5000#10000
-        M=75#17#10
+        M=15#17#10
         n_covs=3#10
-        n_meds=30#2938#5
+        n_meds=10#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
         #elif args.high=="high" and args.sim=="prev":
