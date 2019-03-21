@@ -31,7 +31,7 @@ def prep_baseline_mgp():
     lines = [(l.split()[0], l.split()[1]) for l in lines]
     lines = [x for x in lines if x[1]!='absent']
     subject_ids = [int(x[0]) for x in lines]
-    subject_ids = subject_ids[:50]
+    subject_ids = subject_ids[:200]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
     #the episode1 gives baseline and mortality label
@@ -71,13 +71,12 @@ def prep_baseline_mgp():
             except:
                 continue
             grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
-            if len(grid_times)<8:
+            #if len(grid_times)>25:
                 #cancelled_subs.append(sub)
-                continue
-            rnn_grid_times.append(grid_times)
+                #continue
             timeline = timeline[timeline.Hours>=0]
             timeline = timeline.drop_duplicates()
-            timeline = timeline.fillna(0)
+            #timeline = timeline.fillna(0)
             if timeline.empty:
                 continue
             T_i = timeline.Hours
@@ -103,6 +102,9 @@ def prep_baseline_mgp():
                 #print ind_kf_i
                 #print ind_kt_i
             #print timeline.head()
+            if len(Y_i)>300:
+                continue
+            rnn_grid_times.append(grid_times)
             end_times.append(len(rnn_grid_times[-1])-1)
             num_obs_times.append(timeline.count()[0])
             #num_obs_values.append(np.sum(timeline.count()[1:]))
@@ -119,7 +121,7 @@ def prep_baseline_mgp():
             #raw_input()
             try:
                 medicines = pd.read_csv(data_path+'medicines/'+str(sub)+'_stay'+str(stay_no)+'.med')
-                medicines = medicines.fillna(0)
+                #medicines = medicines.fillna(0)
                 meds_on_grid_i = medicines.to_numpy()
             except:
                 meds_on_grid_i = np.zeros((int(num_rnn_grid_times[-1]),5))
@@ -134,24 +136,24 @@ def prep_baseline_mgp():
             T.append(T_i.tolist())
             labels.append(label)
     #print("num of grid times:%s"%num_rnn_grid_times)
-    '''
-    print("num of observation times: %s"%num_obs_times)
-    print num_obs_values
-    print num_rnn_grid_times
-    print rnn_grid_times
-    print labels
-    print T
-    print "printing Y"
-    print Y
-    print "kf"
-    print ind_kf
-    print "kt"
-    print ind_kt
-    print "meds"
-    print meds_on_grid
-    print "baselines"
-    print baseline_covs
-    '''
+    #'''
+    print np.array(num_obs_times).mean()
+    print np.array(num_obs_values).mean()
+    print np.array(num_rnn_grid_times).mean()
+    #print rnn_grid_times
+    #print labels
+    #print T
+    #print "printing Y"
+    #print Y
+    #print "kf"
+    #print ind_kf
+    #print "kt"
+    #print ind_kt
+    #print "meds"
+    #print meds_on_grid
+    #print "baselines"
+    #print baseline_covs
+    #'''
     pickle.dump(num_obs_times, open('num_obs_times_mimic.pickle','w'))
     pickle.dump(num_obs_values, open('num_obs_values_mimic.pickle','w'))
     pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times_mimic.pickle','w'))

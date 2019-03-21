@@ -127,8 +127,9 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     """
     grid_max = tf.shape(X)[1]
     Z = tf.zeros([0,grid_max,input_dim])
-
-    N = tf.shape(T)[0] #number of observations
+    printop = tf.Print(ind_kt, [ind_kt, num_obs_values],"The ind kt is:",-1, 15)
+    with tf.control_dependencies([printop]):
+        N = tf.shape(T)[0] #number of observations
 
     #setup tf while loop (have to use this bc loop size is variable)
     def cond(i,Z):
@@ -137,8 +138,10 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     def body(i,Z):
         Yi = tf.reshape(tf.slice(Y,[i,0],[1,num_obs_values[i]]),[-1])
         Ti = tf.reshape(tf.slice(T,[i,0],[1,num_obs_times[i]]),[-1])
-        ind_kfi = tf.reshape(tf.slice(ind_kf,[i,0],[1,num_obs_values[i]]),[-1])
-        ind_kti = tf.reshape(tf.slice(ind_kt,[i,0],[1,num_obs_values[i]]),[-1])
+        printop = tf.Print(i, [i,N], "current i is:",-1,10)
+        with tf.control_dependencies([printop]):
+            ind_kfi = tf.reshape(tf.slice(ind_kf,[i,0],[1,num_obs_values[i]]),[-1])
+            ind_kti = tf.reshape(tf.slice(ind_kt,[i,0],[1,num_obs_values[i]]),[-1])
         Xi = tf.reshape(tf.slice(X,[i,0],[1,num_rnn_grid_times[i]]),[-1])
         X_len = num_rnn_grid_times[i]
 
@@ -149,14 +152,16 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
         medcovs = tf.slice(med_cov_grid,[i,0,0],[1,-1,-1])
         tiled_medcovs = tf.tile(medcovs,[n_mc_smps,1,1])
         padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
-
-        Z = tf.concat([Z,padded_GPdraws_medcovs],0)
+        waves = tf.slice(waveform_outputs,[i,0,0],[1,-1,-1])
+        tiled_waves = tf.tile(waves,[n_mc_smps,1,1])
+        padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves],2)
+        Z = tf.concat([Z,padded_GPdraws_medcovs_waves],0)
 
         return i+1,Z
 
     i = tf.constant(0)
     i,Z = tf.while_loop(cond,body,loop_vars=[i,Z],
-                shape_invariants=[i.get_shape(),tf.TensorShape([None,None,None])])
+                shape_invariants=[i.get_shape(),tf.TensorShape([None,None,None])], swap_memory=True)
 
     return Z
 
@@ -182,13 +187,15 @@ def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     Z = get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
                        num_rnn_grid_times,med_cov_grid) #batchsize*num_MC x batch_maxseqlen x num_inputs
     Z.set_shape([None,None,input_dim]) #somehow lost shape info, but need this
-    x = tf.concat([Z, waveform_outputs],1)
+    #wshape = Z.get_shape()
+    #wshape.set_shape([None,None,1])
+    #x = tf.concat([Z, waveform_outputs],2)
     N = tf.shape(T)[0] #number of observations
     #duplicate each entry of seqlens, to account for multiple MC samples per observation
     seqlen_dupe = tf.reshape(tf.tile(tf.expand_dims(num_rnn_grid_times,1),[1,n_mc_smps]),[N*n_mc_smps])
 
     #with tf.variable_scope("",reuse=True):
-    outputs, states = tf.nn.dynamic_rnn(cell=stacked_lstm,inputs=x,
+    outputs, states = tf.nn.dynamic_rnn(cell=stacked_lstm,inputs=Z,
                                             dtype=tf.float32,
                                             sequence_length=seqlen_dupe)
 
@@ -214,7 +221,7 @@ def get_probs_and_accuracy(preds,O):
         probs = tf.concat([probs,[tf.reduce_mean(tf.slice(all_probs,[i*n_mc_smps],[n_mc_smps]))]],0)
         return i+1,probs
     i = tf.constant(0)
-    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])])
+    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])], swap_memory=True)
 
     #compare to truth; just use cutoff of 0.5 for right now to get accuracy
     correct_pred = tf.equal(tf.cast(tf.greater(probs,0.5),tf.int32), O)
@@ -283,7 +290,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 10 #NOTE may want to play around with this
+    batch_size = 5#10 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
@@ -346,8 +353,12 @@ if __name__ == "__main__":
     #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
 
     with tf.name_scope('waveform_rnn'):
-        waveform_cell = tf.contrib.rnn.LSTMCell(input_dim)
-        waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
+        waveform_cell = tf.contrib.rnn.LSTMCell(25)
+        initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
+        waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, initial_state=initial_state, swap_memory=True, dtype=tf.float32)
+    #wshape = waveform_outputs.get_shape().as_list()
+    #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
+    #print waveform_outputs
     stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
 
     # Weights at the last layer given deep LSTM output
@@ -403,7 +414,8 @@ if __name__ == "__main__":
             T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                     vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
-            #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
+            #print ind_kt_pad.shape
+            print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
             feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),

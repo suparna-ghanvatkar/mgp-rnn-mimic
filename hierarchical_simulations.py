@@ -121,6 +121,8 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
         if i%500==0:
             print('%d/%d' %(i,num_encs))
         obs_times = np.insert(np.sort(np.random.uniform(0,end_times[i],num_obs_times[i]-1)),0,0)
+        #print "num obs and the times decided"
+        #print num_obs_times, obs_times
         #obs_times = np.arange(num_obs_times[i])*hour_conv
         #print(num_obs_times[i])
         #obs_ind = np.random.choice(num_obs_times[i], num_obs_times_[i], replace=False).tolist()
@@ -128,7 +130,7 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
         #obs_times_ = obs_times[obs_ind]
         T.append(obs_times)
         l = labels[i]
-        y_i,ind_kf_i,ind_kt_i = sim_multitask_GP(obs_times,true_lengths[l],true_noises[l],true_Kfs[l],trainfrac)
+        y_i,ind_kf_i,ind_kt_i = sim_multitask_GP(obs_times,true_lengths[l],true_noises[l],true_Kfs[l],num_obs_values[i])
         #y_i,ind_kf_i,ind_kt_i = sim_multitask_GP(end_times[i], obs_times_,true_lengths[l],true_noises[l],true_Kfs[l],trainfrac)
         h_i = add_high_freq(end_times[i])
         #print "in sim data"
@@ -151,6 +153,23 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
     meds_on_grid = np.array(meds_on_grid)
     rnn_grid_times = np.array(rnn_grid_times)
     '''
+    print("num of observation times: %s"%num_obs_times)
+    print num_obs_values
+    print num_rnn_grid_times
+    print rnn_grid_times
+    print labels
+    print T
+    print "printing Y"
+    print Y
+    print "kf"
+    print ind_kf
+    print "kt"
+    print ind_kt
+    print "meds"
+    print meds_on_grid
+    print "baselines"
+    print baseline_covs
+    '''
     pickle.dump(num_obs_times, open('num_obs_times_hierarchical.pickle','w'))
     pickle.dump(num_obs_values, open('num_obs_values_hierarchical.pickle','w'))
     pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times_hierarchical.pickle','w'))
@@ -163,12 +182,12 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
     pickle.dump(meds_on_grid, open('meds_on_grid_hierarchical.pickle','w'))
     pickle.dump(baseline_covs, open('baseline_covs_hierarchical.pickle','w'))
     pickle.dump(H, open('H_hierarchical.pickle', 'w'))
-    '''
+    #'''
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs,H)
 
 
-def sim_multitask_GP(times, length,noise_vars,K_f,trainfrac):
+def sim_multitask_GP(times, length,noise_vars,K_f,obs_values):
     """
     draw from a multitask GP.
 
@@ -198,7 +217,7 @@ def sim_multitask_GP(times, length,noise_vars,K_f,trainfrac):
     #print ind_kf, ind_kx
     #randomly dropout some fraction of fully observed time series
     perm = np.random.permutation(n)
-    n_train = int(trainfrac*n)
+    n_train = obs_values#int(trainfrac*n)
     train_inds = perm[:n_train]
     #high_freq_ind = np.where(ind_kx==0)
     #train_inds = np.unique(np.concatenate((high_freq_ind,train_inds)))
@@ -220,4 +239,4 @@ def OU_kernel_np(length,x):
     return K_xx
 
 if __name__=="__main__":
-    sim_dataset(4, 4, 3, 4)
+    sim_dataset(1, 4, 3, 4)

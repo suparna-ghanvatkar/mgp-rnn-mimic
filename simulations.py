@@ -85,7 +85,7 @@ def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2)
 
     #end_times = np.random.uniform(10,120,num_encs) #last observation time of the encounter
     #end time converted to in minutes
-    end_times = np.random.uniform(600,1200, num_encs)
+    end_times = np.random.uniform(600,4200, num_encs)
     num_obs_times = np.random.poisson(end_times/60,num_encs)+3 #number of observation time points per encounter, increase with  longer series
     num_obs_values = np.array(num_obs_times*M*trainfrac,dtype="int")
     #number of inputs to RNN. will be a grid on integers, starting at 0 and ending at next integer after end_time
@@ -131,22 +131,22 @@ def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2)
     Y = np.array(Y); ind_kf = np.array(ind_kf); ind_kt = np.array(ind_kt)
     meds_on_grid = np.array(meds_on_grid)
     rnn_grid_times = np.array(rnn_grid_times)
-    print("num of observation times: %s"%num_obs_times)
-    print num_obs_values
-    print num_rnn_grid_times
-    print rnn_grid_times
-    print labels
-    print T
-    print "printing Y"
-    print Y
-    print "kf"
-    print ind_kf
-    print "kt"
-    print ind_kt
-    print "meds"
-    print meds_on_grid
-    print "baselines"
-    print baseline_covs
+    print np.array(num_obs_times).mean()
+    print np.array(num_obs_values).mean()
+    print np.array(num_rnn_grid_times).mean()
+    #print rnn_grid_times
+    #print labels
+    #print T
+    #print "printing Y"
+    #print Y
+    #print "kf"
+    #print ind_kf
+    #print "kt"
+    #print ind_kt
+    #print "meds"
+    #print meds_on_grid
+    #print "baselines"
+    #print baseline_covs
     pickle.dump(num_obs_times, open('num_obs_times.pickle','w'))
     pickle.dump(num_obs_values, open('num_obs_values.pickle','w'))
     pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times.pickle','w'))
@@ -362,5 +362,5 @@ def OU_kernel_np(length,x):
     return K_xx
 
 if __name__=="__main__":
-    sim_dataset_low(1,10,3,5)
+    sim_dataset_low(120,10,3,5)
 

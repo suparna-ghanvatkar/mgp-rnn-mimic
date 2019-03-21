@@ -90,33 +90,34 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
 
     #now get draws!
     y_ = tf.reshape(Yi,[-1,1])
-    #Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
+    Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
     Ly = tf.cholesky(Ky)
-    Mu = tf.matmul(K_fy,tf.cholesky_solve(Ly,y_))
+    #Mu = tf.matmul(K_fy,tf.cholesky_solve(Ly,y_))
 
     #TODO: it's worth testing to see at what point computation speedup of Lanczos algorithm is useful & needed.
     # For smaller examples, using Cholesky will probably be faster than this unoptimized Lanczos implementation.
     # Likewise for CG and BCG vs just taking the Cholesky of Ky once
-    """
+    #"""
     #Never need to explicitly compute Sigma! Just need matrix products with Sigma in Lanczos algorithm
     def Sigma_mul(vec):
         # vec must be a 2d tensor, shape (?,?)
         return tf.matmul(K_ff,vec) - tf.matmul(K_fy,block_CG(Ky,tf.matmul(tf.transpose(K_fy),vec)))
 
+    xi = tf.random_normal((nx*M,n_mc_smps))
+
     def small_draw():
+        Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
+
         return Mu + tf.matmul(tf.cholesky(Sigma),xi)
     def large_draw():
         return Mu + block_Lanczos(Sigma_mul,xi,n_mc_smps) #no need to explicitly reshape Mu
-
     BLOCK_LANC_THRESH = 1000
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
-    """
+    #"""
 
-    Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
-    printop = tf.Print(Sigma, [Sigma], "The sigma is:", -1, 20)
-    with tf.control_dependencies([printop]):
-        xi = tf.random_normal((nx*M,n_mc_smps))
-    draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
+    #printop = tf.Print(Sigma, [Sigma], "The sigma is:", -1, 20)
+    #with tf.control_dependencies([printop]):
+    #draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
     draw_reshape = tf.transpose(tf.reshape(tf.transpose(draw),[n_mc_smps,M,nx]),perm=[0,2,1])
     return draw_reshape
 
@@ -189,7 +190,7 @@ def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     #with tf.variable_scope("",reuse=True):
     outputs, states = tf.nn.dynamic_rnn(cell=stacked_lstm,inputs=Z,
                                             dtype=tf.float32,
-                                            sequence_length=seqlen_dupe)
+                                            sequence_length=seqlen_dupe, swap_memory=True)
 
     final_outputs = states[n_layers-1][1]
     preds =  tf.matmul(final_outputs, out_weights) + out_biases
@@ -213,7 +214,7 @@ def get_probs_and_accuracy(preds,O):
         probs = tf.concat([probs,[tf.reduce_mean(tf.slice(all_probs,[i*n_mc_smps],[n_mc_smps]))]],0)
         return i+1,probs
     i = tf.constant(0)
-    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])])
+    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])], swap_memory=True)
 
     #compare to truth; just use cutoff of 0.5 for right now to get accuracy
     correct_pred = tf.equal(tf.cast(tf.greater(probs,0.5),tf.int32), O)
@@ -237,7 +238,7 @@ if __name__ == "__main__":
     #####
     if args.high=="low" and args.sim=="sim":
         num_encs=50#5000#10000
-        M=15#17#10
+        M=25#17#10
         n_covs=3#10
         n_meds=10#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
@@ -275,14 +276,19 @@ if __name__ == "__main__":
     train_test_perm = rs.permutation(N_tot)
     val_frac = 0.1 #fraction of full data to set aside for testing
     te_ind = train_test_perm[:int(val_frac*N_tot)]
+    labels_te = [labels[i] for i in te_ind]
+    while (0 not in labels_te) or (1 not in labels_te):
+        train_test_perm = rs.permutation(N_tot)
+        te_ind = train_test_perm[:int(val_frac*N_tot)]
+        labels_te = [labels[i] for i in te_ind]
     tr_ind = train_test_perm[int(val_frac*N_tot):]
+    labels_tr = [labels[i] for i in tr_ind]
     Nte = len(te_ind); Ntr = len(tr_ind)
 
     #print tr_ind
     #print te_ind
     #Break everything out into train/test
     covs_tr = [covs[i] for i in tr_ind]; covs_te = [covs[i] for i in te_ind]
-    labels_tr = [labels[i] for i in tr_ind]; labels_te = [labels[i] for i in te_ind]
     times_tr = [times[i] for i in tr_ind]; times_te = [times[i] for i in te_ind]
     values_tr = [values[i] for i in tr_ind]; values_te = [values[i] for i in te_ind]
     ind_lvs_tr = [ind_lvs[i] for i in tr_ind]; ind_lvs_te = [ind_lvs[i] for i in te_ind]
@@ -305,7 +311,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 1 #NOTE may want to play around with this
+    batch_size = 10 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
     print test_freq
 
@@ -427,15 +433,12 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            try:
-                loss_,_ = sess.run([loss,train_op],feed_dict)
+            loss_,_ = sess.run([loss,train_op],feed_dict)
 
-                print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
-                sys.stdout.flush()
-                batch += 1; total_batches += 1
-            except ResourceExhaustedError:
-                continue
+            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+            sys.stdout.flush()
+            batch += 1; total_batches += 1
 
             if total_batches % test_freq == 0: #Check val set every so often for early stopping
                 #TODO: may also want to check validation performance at additional X hours back
