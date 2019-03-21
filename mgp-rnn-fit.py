@@ -22,6 +22,7 @@ import argparse
 from util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
 from simulations import *
 from patient_events import *
+from tensorflow.python import debug as tf_debug
 
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
@@ -61,10 +62,10 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
     #data covariance.
     #Either need to take Cholesky of this or use CG / block CG for matrix-vector products
     Ky = Kf_Ktt + DI + 1e-6*tf.eye(ny)
-
-    ### build out cross-covariances and covariance at grid
-
-    nx = tf.shape(Xi)[0]
+    printop = tf.Print(Ky,[Ky, L_f_init, K_tt],"The Ky is:", 15, 15)
+    with tf.control_dependencies([printop]):
+        ### build out cross-covariances and covariance at grid
+        nx = tf.shape(Xi)[0]
 
     K_xx = OU_kernel(length,Xi,Xi)
     K_xt = OU_kernel(length,Xi,Ti)
@@ -111,8 +112,10 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
     """
 
-    xi = tf.random_normal((nx*M,n_mc_smps))
     Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
+    printop = tf.Print(Sigma, [Sigma], "The sigma is:", -1, 20)
+    with tf.control_dependencies([printop]):
+        xi = tf.random_normal((nx*M,n_mc_smps))
     draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
     draw_reshape = tf.transpose(tf.reshape(tf.transpose(draw),[n_mc_smps,M,nx]),perm=[0,2,1])
     return draw_reshape
@@ -153,8 +156,7 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
 
     i = tf.constant(0)
     i,Z = tf.while_loop(cond,body,loop_vars=[i,Z],
-                shape_invariants=[i.get_shape(),tf.TensorShape([None,None,None])])
-
+                shape_invariants=[i.get_shape(),tf.TensorShape([None,None,None])],swap_memory=True)
     return Z
 
 def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
@@ -177,7 +179,9 @@ def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     """
     Z = get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
                        num_rnn_grid_times,med_cov_grid) #batchsize*num_MC x batch_maxseqlen x num_inputs
-    Z.set_shape([None,None,input_dim]) #somehow lost shape info, but need this
+    printop = tf.Print(Z,[Z],"The Z is:")
+    with tf.control_dependencies([printop]):
+        Z.set_shape([None,None,input_dim]) #somehow lost shape info, but need this
     N = tf.shape(T)[0] #number of observations
     #duplicate each entry of seqlens, to account for multiple MC samples per observation
     seqlen_dupe = tf.reshape(tf.tile(tf.expand_dims(num_rnn_grid_times,1),[1,n_mc_smps]),[N*n_mc_smps])
@@ -226,6 +230,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
     parser.add_argument('sim', type=str, help='prev/sim/data/prevdata')
+    parser.add_argument('--debug', dest='debug')
     args = parser.parse_args()
     #####
     ##### Setup ground truth and sim some data from a GP
@@ -300,8 +305,9 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 10 #NOTE may want to play around with this
+    batch_size = 1 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
+    print test_freq
 
     # Network Parameters
     n_hidden = 20 # hidden layer num of features; assumed same
@@ -313,6 +319,9 @@ if __name__ == "__main__":
     # Create graph
     ops.reset_default_graph()
     sess = tf.Session()
+    if args.debug:
+        sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+
 
     ##### tf Graph - inputs
 
@@ -362,7 +371,9 @@ if __name__ == "__main__":
 
     ##### Get predictions and feed into optimization
     preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
-    probs,accuracy = get_probs_and_accuracy(preds,O)
+    printop = tf.Print(preds, [preds], "The preds are:",-1,10)
+    with tf.control_dependencies([printop]):
+        probs,accuracy = get_probs_and_accuracy(preds,O)
 
     # Define optimization problem
     loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
@@ -377,6 +388,10 @@ if __name__ == "__main__":
     sess.run(tf.global_variables_initializer())
     print("Graph setup!")
 
+    #Create a visualizer object
+    summary_writer = tf.summary.FileWriter('tensorboard',sess.graph)
+    if not os.path.exists('tensorboard'):
+        os.makedirs('tensorboard')
     #setup minibatch indices
     #print Ntr
     #print batch_size
@@ -406,23 +421,27 @@ if __name__ == "__main__":
             T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_rawdata(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                     vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds))
+            #print meds_cov_pad
             #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
             feed_dict={Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
+            try:
+                loss_,_ = sess.run([loss,train_op],feed_dict)
 
-            loss_,_ = sess.run([loss,train_op],feed_dict)
-
-            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                  ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
-            sys.stdout.flush()
-            batch += 1; total_batches += 1
+                print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+                sys.stdout.flush()
+                batch += 1; total_batches += 1
+            except ResourceExhaustedError:
+                continue
 
             if total_batches % test_freq == 0: #Check val set every so often for early stopping
                 #TODO: may also want to check validation performance at additional X hours back
                 #from the event time, as well as just checking performance at terminal time
                 #on the val set, so you know if it generalizes well further back in time as well
+                print "starting eval"
                 test_t = time()
                 feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
                        med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,

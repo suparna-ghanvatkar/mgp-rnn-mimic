@@ -31,8 +31,9 @@ def prep_baseline_mgp():
     lines = [(l.split()[0], l.split()[1]) for l in lines]
     lines = [x for x in lines if x[1]!='absent']
     subject_ids = [int(x[0]) for x in lines]
-    subject_ids = subject_ids[:30]
-    #subject_ids = [20, 30, 33, 52, 85, 123, 124, 135, 2492, 2488]
+    subject_ids = subject_ids[:50]
+    #cancelled_subs = []
+    #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
     #the episode1 gives baseline and mortality label
     #the episode 1 timeseries gives the timed events to be fed to rnn
     #the input events CV has both the subjects' data
@@ -69,8 +70,14 @@ def prep_baseline_mgp():
                 timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
             except:
                 continue
+            grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
+            if len(grid_times)<8:
+                #cancelled_subs.append(sub)
+                continue
+            rnn_grid_times.append(grid_times)
             timeline = timeline[timeline.Hours>=0]
             timeline = timeline.drop_duplicates()
+            timeline = timeline.fillna(0)
             if timeline.empty:
                 continue
             T_i = timeline.Hours
@@ -82,14 +89,20 @@ def prep_baseline_mgp():
                 #values = np.log(values)
                 #print values
                 presence = timeline.iloc[t].isnull()
+                #print presence
                 for i in range(1,len_columns):
                     if presence[i]==False:
                         if type(values[i]) is not str:
-                            Y_i.append(np.log(values[i]))
+                            if values[i]>0:
+                                Y_i.append(np.log(values[i]))
+                            else:
+                                Y_i.append(values[i])
                             ind_kf_i.append(i-1)
                             ind_kt_i.append(t)
+                #print Y_i
+                #print ind_kf_i
+                #print ind_kt_i
             #print timeline.head()
-            rnn_grid_times.append(list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1)))
             end_times.append(len(rnn_grid_times[-1])-1)
             num_obs_times.append(timeline.count()[0])
             #num_obs_values.append(np.sum(timeline.count()[1:]))
@@ -100,10 +113,13 @@ def prep_baseline_mgp():
                 baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
             except:
                 continue
+            baseline = baseline.fillna(0)
             baseline_i = baseline.iloc[0].to_list()
             #print baseline_i
+            #raw_input()
             try:
                 medicines = pd.read_csv(data_path+'medicines/'+str(sub)+'_stay'+str(stay_no)+'.med')
+                medicines = medicines.fillna(0)
                 meds_on_grid_i = medicines.to_numpy()
             except:
                 meds_on_grid_i = np.zeros((int(num_rnn_grid_times[-1]),5))
@@ -117,6 +133,7 @@ def prep_baseline_mgp():
             ind_kt.append(ind_kt_i)
             T.append(T_i.tolist())
             labels.append(label)
+    #print("num of grid times:%s"%num_rnn_grid_times)
     '''
     print("num of observation times: %s"%num_obs_times)
     print num_obs_values

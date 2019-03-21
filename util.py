@@ -42,6 +42,8 @@ def pad_rawdata(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs):
     ind_kf_pad = np.zeros((N,Y_maxlen))
     ind_kt_pad = np.zeros((N,Y_maxlen))
 
+    #print("covs:%s"%covs)
+    #raw_input()
     grid_lens = np.array([np.shape(m)[0] for m in meds_on_grid])
     grid_maxlen = np.max(grid_lens)
     meds_cov_pad = np.zeros((N,grid_maxlen,num_meds+num_covs))
@@ -52,11 +54,17 @@ def pad_rawdata(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs):
         Y_pad[i,:Y_lens[i]] = Y[i]
         ind_kf_pad[i,:Y_lens[i]] = ind_kf[i]
         ind_kt_pad[i,:Y_lens[i]] = ind_kt[i]
-        print i, grid_lens[i], len(X[i])
+        #print i, grid_lens[i], len(X[i])
         X_pad[i,:grid_lens[i]] = X[i]
         meds_cov_pad[i,:grid_lens[i],:num_meds] = meds_on_grid[i]
-        meds_cov_pad[i,:grid_lens[i],num_meds:] = np.tile(covs[i],(grid_lens[i],1))
-
+        #print "meds on grid"
+        #print meds_on_grid[i]
+        covs_t = np.tile(covs[i],(grid_lens[i],1))
+        #print "baselines"
+        #print covs_t
+        meds_cov_pad[i,:grid_lens[i],num_meds:] = covs_t
+        #print "concat"
+        #print meds_cov_pad[i,:]
     return T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
 
 #####

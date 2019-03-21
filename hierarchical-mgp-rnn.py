@@ -25,7 +25,7 @@ from hierarchical_util import *
 from hierarchical_simulations import *
 #from tf.keras.layers import *
 #from patient_events import *
-
+from tensorflow.python import debug as tf_debug
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 #####
@@ -231,6 +231,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     #parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
     parser.add_argument('sim', type=str, help='prevsim/sim/data/prevdata')
+    parser.add_argument('--debug', dest='debug')
     args = parser.parse_args()
     #####
     ##### Setup ground truth and sim some data from a GP
@@ -296,7 +297,8 @@ if __name__ == "__main__":
     # Create graph
     ops.reset_default_graph()
     sess = tf.Session()
-
+    if args.debug:
+        sess = tf_debug.LocalCLIDebugWrapperSession(sess)
     ##### tf Graph - inputs
 
     #observed values, times, inducing times; padded to longest in the batch
@@ -342,8 +344,10 @@ if __name__ == "__main__":
     #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
     #lstm_out = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(input_dim))(waveform)
     #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
-    waveform_cell = tf.contrib.rnn.LSTMCell(input_dim)
-    waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
+
+    with tf.name_scope('waveform_rnn'):
+        waveform_cell = tf.contrib.rnn.LSTMCell(input_dim)
+        waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
     stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
 
     # Weights at the last layer given deep LSTM output
@@ -362,7 +366,10 @@ if __name__ == "__main__":
             loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
     loss = loss_fit + loss_reg
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
-
+    #Create a visualizer object
+    summary_writer = tf.summary.FileWriter('tensorboard',sess.graph)
+    if not os.path.exists('tensorboard'):
+        os.makedirs('tensorboard')
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
     print("Graph setup!")

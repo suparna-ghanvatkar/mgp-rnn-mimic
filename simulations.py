@@ -131,6 +131,22 @@ def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2)
     Y = np.array(Y); ind_kf = np.array(ind_kf); ind_kt = np.array(ind_kt)
     meds_on_grid = np.array(meds_on_grid)
     rnn_grid_times = np.array(rnn_grid_times)
+    print("num of observation times: %s"%num_obs_times)
+    print num_obs_values
+    print num_rnn_grid_times
+    print rnn_grid_times
+    print labels
+    print T
+    print "printing Y"
+    print Y
+    print "kf"
+    print ind_kf
+    print "kt"
+    print ind_kt
+    print "meds"
+    print meds_on_grid
+    print "baselines"
+    print baseline_covs
     pickle.dump(num_obs_times, open('num_obs_times.pickle','w'))
     pickle.dump(num_obs_values, open('num_obs_values.pickle','w'))
     pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times.pickle','w'))
@@ -344,4 +360,7 @@ def OU_kernel_np(length,x):
     K_xx = np.exp(-np.abs(x1-x2)/length)
     #print K_xx.shape
     return K_xx
+
+if __name__=="__main__":
+    sim_dataset_low(1,10,3,5)
 
