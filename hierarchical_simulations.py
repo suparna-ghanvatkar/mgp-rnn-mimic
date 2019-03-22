@@ -50,7 +50,7 @@ def add_high_freq(end_time):
     However, the hours granularity is too large..so change to minutes which is 0.000133 minutes
 
     """
-    num_obs = int(ceil(end_time*60*60*125))
+    num_obs = int(ceil(end_time*60*60))
     y_i = np.random.normal(0,1,num_obs)
     #ind_kf = np.array([index]*num_obs)
     #ind_kt = np.arange(num_obs)

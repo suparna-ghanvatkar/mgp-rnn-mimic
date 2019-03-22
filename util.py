@@ -187,7 +187,8 @@ def block_CG(A_,B_):
     X = tf.zeros((n,m))
     V_ = tf.zeros((n,m))
     R = B_
-    R_ = tf.matrix_set_diag(tf.zeros((n,m)),tf.ones([m]))
+    diag_len = tf.math.minimum(n,m)
+    R_ = tf.matrix_set_diag(tf.zeros((n,m)),tf.ones([diag_len]))
 
     #somewhat arbitrary again, may want to check sensitivity
     CG_EPS = tf.cast(n/1000,"float")

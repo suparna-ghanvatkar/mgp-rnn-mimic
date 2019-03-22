@@ -147,15 +147,16 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
 
         GP_draws = draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti)
         pad_len = grid_max-X_len #pad by this much
-        padded_GP_draws = tf.concat([GP_draws,tf.zeros((n_mc_smps,pad_len,M))],1)
+        with tf.name_scope('GP_samp_concats'):
+            padded_GP_draws = tf.concat([GP_draws,tf.zeros((n_mc_smps,pad_len,M))],1)
 
-        medcovs = tf.slice(med_cov_grid,[i,0,0],[1,-1,-1])
-        tiled_medcovs = tf.tile(medcovs,[n_mc_smps,1,1])
-        padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
-        waves = tf.slice(waveform_outputs,[i,0,0],[1,-1,-1])
-        tiled_waves = tf.tile(waves,[n_mc_smps,1,1])
-        padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves],2)
-        Z = tf.concat([Z,padded_GPdraws_medcovs_waves],0)
+            medcovs = tf.slice(med_cov_grid,[i,0,0],[1,-1,-1])
+            tiled_medcovs = tf.tile(medcovs,[n_mc_smps,1,1])
+            padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
+            waves = tf.slice(waveform_outputs,[i,0,0],[1,-1,-1])
+            tiled_waves = tf.tile(waves,[n_mc_smps,1,1])
+            padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves],2)
+            Z = tf.concat([Z,padded_GPdraws_medcovs_waves],0)
 
         return i+1,Z
 
@@ -244,7 +245,7 @@ if __name__ == "__main__":
     ##### Setup ground truth and sim some data from a GP
     #####
     if args.sim=="sim":
-        num_encs=20#100#10000
+        num_encs=50#100#10000
         M=10#17#10
         n_covs=3#10
         n_meds=10#2938#5
@@ -294,11 +295,11 @@ if __name__ == "__main__":
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
-    #n_hidden_waveform = 10
+    waveform_dim = 10
     n_hidden = 20 # hidden layer num of features; assumed same
     n_layers = 3 # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
-    input_dim = M+n_meds+n_covs #dimensionality of input sequence.
+    input_dim = M+n_meds+n_covs+waveform_dim #dimensionality of input sequence.
     n_mc_smps = 25
 
     # Create graph
@@ -321,7 +322,7 @@ if __name__ == "__main__":
     num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
     num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
 
-    waveform = tf.placeholder("float",[None,None,450000])
+    waveform = tf.placeholder("float",[None,None,3600])
 
     N = tf.shape(Y)[0]
 
@@ -353,12 +354,13 @@ if __name__ == "__main__":
     #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
 
     with tf.name_scope('waveform_rnn'):
-        waveform_cell = tf.contrib.rnn.LSTMCell(25)
+        waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
         initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
         waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, initial_state=initial_state, swap_memory=True, dtype=tf.float32)
     #wshape = waveform_outputs.get_shape().as_list()
     #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
     #print waveform_outputs
+    auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
     stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
 
     # Weights at the last layer given deep LSTM output
@@ -371,16 +373,17 @@ if __name__ == "__main__":
 
     # Define optimization problem
     loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
+    #loss_wave = tf.reduce_sum(tf.square(tf.get_variable('aux_output')))
     with tf.variable_scope("",reuse=True):
         loss_reg = L2_penalty*tf.reduce_sum(tf.square(out_weights))
         for i in range(n_layers):
             loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
-    loss = loss_fit + loss_reg
+    loss = loss_fit + loss_reg #+ loss_wave
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
     #Create a visualizer object
-    summary_writer = tf.summary.FileWriter('tensorboard',sess.graph)
-    if not os.path.exists('tensorboard'):
-        os.makedirs('tensorboard')
+    summary_writer = tf.summary.FileWriter('hierarchical_tensorboard',sess.graph)
+    if not os.path.exists('hierarchical_tensorboard'):
+        os.makedirs('hierarchical_tensorboard')
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
     print("Graph setup!")
@@ -415,7 +418,7 @@ if __name__ == "__main__":
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                     vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
             #print ind_kt_pad.shape
-            print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
+            #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
             feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),

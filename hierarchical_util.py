@@ -51,7 +51,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
 
     H_lens = np.array([len(h) for h in H])
     #H_maxlen = np.max(H_lens)
-    H_maxlen = grid_maxlen*450000
+    H_maxlen = grid_maxlen*3600
     H_pad = np.zeros((N,H_maxlen))
 
     for i in range(N):
@@ -67,7 +67,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
 
     #if H_maxlen!=(grid_maxlen*450000):
     #    print "tafavat"+str(H_maxlen)+" "+str(grid_maxlen)
-    H_pad = H_pad.reshape((N,grid_maxlen,450000))
+    H_pad = H_pad.reshape((N,grid_maxlen,3600))
 
     return T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad
 

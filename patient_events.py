@@ -31,7 +31,7 @@ def prep_baseline_mgp():
     lines = [(l.split()[0], l.split()[1]) for l in lines]
     lines = [x for x in lines if x[1]!='absent']
     subject_ids = [int(x[0]) for x in lines]
-    subject_ids = subject_ids[:200]
+    #subject_ids = subject_ids[:700]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
     #the episode1 gives baseline and mortality label
@@ -54,6 +54,8 @@ def prep_baseline_mgp():
     eth_count = 0
     Gender = {'M':0, 'F':1}
 
+    breakflag = False
+
     for sub in subject_ids:
         print("Preparing subject %s"%str(sub))
         Y_i = []
@@ -71,9 +73,9 @@ def prep_baseline_mgp():
             except:
                 continue
             grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
-            #if len(grid_times)>25:
+            if len(grid_times)>55:
                 #cancelled_subs.append(sub)
-                #continue
+                continue
             timeline = timeline[timeline.Hours>=0]
             timeline = timeline.drop_duplicates()
             #timeline = timeline.fillna(0)
@@ -102,7 +104,7 @@ def prep_baseline_mgp():
                 #print ind_kf_i
                 #print ind_kt_i
             #print timeline.head()
-            if len(Y_i)>300:
+            if len(Y_i)>200:
                 continue
             rnn_grid_times.append(grid_times)
             end_times.append(len(rnn_grid_times[-1])-1)
@@ -135,6 +137,12 @@ def prep_baseline_mgp():
             ind_kt.append(ind_kt_i)
             T.append(T_i.tolist())
             labels.append(label)
+            if len(labels)>=1000:
+                breakflag = True
+                break
+        if breakflag:
+            print("dataset ends at %s"%sub)
+            break
     #print("num of grid times:%s"%num_rnn_grid_times)
     #'''
     print np.array(num_obs_times).mean()

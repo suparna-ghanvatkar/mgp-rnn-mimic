@@ -62,10 +62,10 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
     #data covariance.
     #Either need to take Cholesky of this or use CG / block CG for matrix-vector products
     Ky = Kf_Ktt + DI + 1e-6*tf.eye(ny)
-    printop = tf.Print(Ky,[Ky, L_f_init, K_tt],"The Ky is:", 15, 15)
-    with tf.control_dependencies([printop]):
+    #printop = tf.Print(Ky,[Ky, L_f_init, K_tt],"The Ky is:", 15, 15)
+    #with tf.control_dependencies([printop]):
         ### build out cross-covariances and covariance at grid
-        nx = tf.shape(Xi)[0]
+    nx = tf.shape(Xi)[0]
 
     K_xx = OU_kernel(length,Xi,Xi)
     K_xt = OU_kernel(length,Xi,Ti)
@@ -111,7 +111,7 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
         return Mu + tf.matmul(tf.cholesky(Sigma),xi)
     def large_draw():
         return Mu + block_Lanczos(Sigma_mul,xi,n_mc_smps) #no need to explicitly reshape Mu
-    BLOCK_LANC_THRESH = 1000
+    BLOCK_LANC_THRESH = 1000000
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
     #"""
 
@@ -180,9 +180,9 @@ def get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     """
     Z = get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
                        num_rnn_grid_times,med_cov_grid) #batchsize*num_MC x batch_maxseqlen x num_inputs
-    printop = tf.Print(Z,[Z],"The Z is:")
-    with tf.control_dependencies([printop]):
-        Z.set_shape([None,None,input_dim]) #somehow lost shape info, but need this
+    #printop = tf.Print(Z,[Z],"The Z is:")
+    #with tf.control_dependencies([printop]):
+    Z.set_shape([None,None,input_dim]) #somehow lost shape info, but need this
     N = tf.shape(T)[0] #number of observations
     #duplicate each entry of seqlens, to account for multiple MC samples per observation
     seqlen_dupe = tf.reshape(tf.tile(tf.expand_dims(num_rnn_grid_times,1),[1,n_mc_smps]),[N*n_mc_smps])
@@ -300,6 +300,7 @@ if __name__ == "__main__":
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
 
     print("data fully setup!")
+    print("Total encounters:%s and total training samples:%s"%(N_tot,Ntr))
     sys.stdout.flush()
 
     #####
@@ -311,9 +312,9 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 10 #NOTE may want to play around with this
+    batch_size = 5 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
-    print test_freq
+    #print test_freq
 
     # Network Parameters
     n_hidden = 20 # hidden layer num of features; assumed same
@@ -377,9 +378,9 @@ if __name__ == "__main__":
 
     ##### Get predictions and feed into optimization
     preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
-    printop = tf.Print(preds, [preds], "The preds are:",-1,10)
-    with tf.control_dependencies([printop]):
-        probs,accuracy = get_probs_and_accuracy(preds,O)
+    #printop = tf.Print(preds, [preds], "The preds are:",-1,10)
+    #with tf.control_dependencies([printop]):
+    probs,accuracy = get_probs_and_accuracy(preds,O)
 
     # Define optimization problem
     loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
@@ -433,8 +434,11 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            loss_,_ = sess.run([loss,train_op],feed_dict)
-
+            try:
+                loss_,_ = sess.run([loss,train_op],feed_dict)
+            except:
+                batch += 1; total_batches += 1
+                continue
             print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
                 ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
