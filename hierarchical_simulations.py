@@ -51,7 +51,10 @@ def add_high_freq(end_time):
 
     """
     num_obs = int(ceil(end_time*60*60))
-    y_i = np.random.normal(0,1,num_obs)
+    y_i1 = np.random.normal(0,1,num_obs)
+    y_i2 = np.random.normal(0,1,num_obs)
+    y_i = np.column_stack((y_i1,y_i2))
+    #print y_i1.shape, y_i2.shape, y_i.shape
     #ind_kf = np.array([index]*num_obs)
     #ind_kt = np.arange(num_obs)
     #obs_times = (np.arange(num_obs)*0.000133).tolist()
@@ -136,6 +139,7 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
         #print "in sim data"
         #print y_i, ind_kf_i, ind_kt_i, obs_times
         H.append(h_i)
+        print h_i.shape
         Y.append(y_i); ind_kf.append(ind_kf_i); ind_kt.append(ind_kt_i)
         rnn_grid_times.append(np.arange(num_rnn_grid_times[i]))
         if l==0: #sim some different baseline covs; meds for 2 classes

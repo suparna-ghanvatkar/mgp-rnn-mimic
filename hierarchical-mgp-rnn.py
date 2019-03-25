@@ -23,6 +23,7 @@ from hierarchical_util import *
 #from hierarchical_util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
 #from simulations import *
 from hierarchical_simulations import *
+from hierarchical_patient_events import *
 #from tf.keras.layers import *
 #from patient_events import *
 from tensorflow.python import debug as tf_debug
@@ -138,7 +139,7 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     def body(i,Z):
         Yi = tf.reshape(tf.slice(Y,[i,0],[1,num_obs_values[i]]),[-1])
         Ti = tf.reshape(tf.slice(T,[i,0],[1,num_obs_times[i]]),[-1])
-        printop = tf.Print(i, [i,N], "current i is:",-1,10)
+        printop = tf.Print(i, [i,N,tf.shape(waveform_outputs)], "current i is:",-1,10)
         with tf.control_dependencies([printop]):
             ind_kfi = tf.reshape(tf.slice(ind_kf,[i,0],[1,num_obs_values[i]]),[-1])
             ind_kti = tf.reshape(tf.slice(ind_kt,[i,0],[1,num_obs_values[i]]),[-1])
@@ -251,18 +252,37 @@ if __name__ == "__main__":
         n_meds=10#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
+    elif args.sim=="data":
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_baseline_mgp()
+        num_enc = len(num_obs_times)
+        M = 25
+        n_meds = 5
+        n_covs = 9
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = retrieve_hierarchical_sim()
+        values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_baseline_mgp()
+        num_enc = len(num_obs_times)
+        M = 25
+        n_meds = 5
+        n_covs = 9
 
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)
+    #train_test_perm = range(N_tot)
     val_frac = 0.1 #fraction of full data to set aside for testing
     te_ind = train_test_perm[:int(val_frac*N_tot)]
+    labels_te = [labels[i] for i in te_ind]
+    while (0 not in labels_te) or (1 not in labels_te):
+        train_test_perm = rs.permutation(N_tot)
+        te_ind = train_test_perm[:int(val_frac*N_tot)]
+        labels_te = [labels[i] for i in te_ind]
     tr_ind = train_test_perm[int(val_frac*N_tot):]
+    labels_tr = [labels[i] for i in tr_ind]
     Nte = len(te_ind); Ntr = len(tr_ind)
 
+    print("Total samples:%s, Train/tes:%s/%s"%(N_tot,Ntr,Nte))
     #print tr_ind
     #print te_ind
     #Break everything out into train/test
@@ -280,6 +300,7 @@ if __name__ == "__main__":
     H_tr = [high_freq[i] for i in tr_ind]; H_te = [high_freq[i] for i in te_ind]
 
     print("data fully setup!")
+    print("test labels are:%s"%labels_te)
     sys.stdout.flush()
 
     #####
@@ -291,7 +312,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 5#10 #NOTE may want to play around with this
+    batch_size = 10 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
@@ -322,7 +343,7 @@ if __name__ == "__main__":
     num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
     num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
 
-    waveform = tf.placeholder("float",[None,None,3600])
+    waveform = tf.placeholder("float",[None,None,3600*2])
 
     N = tf.shape(Y)[0]
 
@@ -350,17 +371,18 @@ if __name__ == "__main__":
 
     # Create network
     #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
-    #lstm_out = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(input_dim))(waveform)
     #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
 
     with tf.name_scope('waveform_rnn'):
         waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
-        initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
-        waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, initial_state=initial_state, swap_memory=True, dtype=tf.float32)
+        #initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
+        #waveform_outputs = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(waveform_dim, input_shape=(None,3600,2), output_shape=(None,waveform_dim)))(waveform)
+        waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
+        waveform_outputs = tf.reshape(waveform_outputs,[batch_size,-1,waveform_dim])
     #wshape = waveform_outputs.get_shape().as_list()
     #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
     #print waveform_outputs
-    auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
+    #auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
     stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
 
     # Weights at the last layer given deep LSTM output
@@ -417,14 +439,18 @@ if __name__ == "__main__":
             T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                     vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
-            #print ind_kt_pad.shape
+            #print X_pad.shape
             #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
             feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
 
-            loss_,_ = sess.run([loss,train_op],feed_dict)
+            try:
+                loss_,_ = sess.run([loss,train_op],feed_dict)
+            except:
+                batch+=1; total_batches+=1
+                continue
 
             print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
                   ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
@@ -435,17 +461,46 @@ if __name__ == "__main__":
                 #TODO: may also want to check validation performance at additional X hours back
                 #from the event time, as well as just checking performance at terminal time
                 #on the val set, so you know if it generalizes well further back in time as well
+                print("Testing")
                 test_t = time()
-                feed_dict={waveform:H_pad_te, Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
-                       med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,
-                       num_obs_values:num_obs_values_te,num_rnn_grid_times:num_rnn_grid_times_te,O:labels_te}
-                te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)
-                te_auc = roc_auc_score(labels_te, te_probs)
-                te_prc = average_precision_score(labels_te, te_probs)
+                acc = 0.0
+                auc = 0.0
+                prc = 0.0
+                no_iters = int(Nte/batch_size)
+                start_i = 0
+                pred_probs = []
+                for j in range(no_iters):
+                    end_i = start_i+batch_size
+                    H_pad_bte = H_pad_te[start_i:end_i]
+                    Y_pad_bte = Y_pad_te[start_i:end_i]
+                    T_pad_bte = T_pad_te[start_i:end_i]
+                    ind_kf_pad_bte = ind_kf_pad_te[start_i:end_i]
+                    ind_kt_pad_bte = ind_kt_pad_te[start_i:end_i]
+                    X_pad_bte = X_pad_te[start_i:end_i]
+                    meds_cov_pad_bte = meds_cov_pad_te[start_i:end_i]
+                    num_obs_times_bte = num_obs_times_te[start_i:end_i]
+                    num_obs_values_bte = num_obs_values_te[start_i:end_i]
+                    num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
+                    labels_bte = labels_te[start_i:end_i]
+                    feed_dict={waveform:H_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
+                       med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
+                       num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
+                    te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)
+                    #print "Te probs:"+str(te_probs)
+                    pred_probs.extend(te_probs)
+                    acc += te_acc
+                    start_i = end_i
+                    #auc += te_auc
+                    #prc += te_prc
+                acc = acc/no_iters
+                te_auc = roc_auc_score(labels_te, pred_probs)
+                te_prc = average_precision_score(labels_te, pred_probs)
+                #auc = auc/no_iters
+                #prc = prc/no_iters
                 print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
                       "{:.2f}".format(time()-test_t)+\
                       ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
+                      " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
                       "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
                 sys.stdout.flush()
 

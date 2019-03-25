@@ -40,6 +40,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
 
     Y_lens = np.array([len(y) for y in Y])
     Y_maxlen = np.max(Y_lens)
+    print("Y maxlen:%s"%Y_maxlen)
     Y_pad = np.zeros((N,Y_maxlen))
     ind_kf_pad = np.zeros((N,Y_maxlen))
     ind_kt_pad = np.zeros((N,Y_maxlen))
@@ -49,13 +50,16 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
     meds_cov_pad = np.zeros((N,grid_maxlen,num_meds+num_covs))
     X_pad = np.zeros((N,grid_maxlen))
 
+    print grid_maxlen
     H_lens = np.array([len(h) for h in H])
+    #print("H_lensgths:%s"%H_lens)
     #H_maxlen = np.max(H_lens)
     H_maxlen = grid_maxlen*3600
-    H_pad = np.zeros((N,H_maxlen))
-
+    H_pad = np.zeros((N,H_maxlen,2))
+    #print H_pad.shape
     for i in range(N):
-        H_pad[i,:H_lens[i]] = H[i]
+        #print H[i].shape
+        H_pad[i,:H_lens[i],:] = H[i]
         T_pad[i,:T_lens[i]] = T[i]
         Y_pad[i,:Y_lens[i]] = Y[i]
         ind_kf_pad[i,:Y_lens[i]] = ind_kf[i]
@@ -67,8 +71,8 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
 
     #if H_maxlen!=(grid_maxlen*450000):
     #    print "tafavat"+str(H_maxlen)+" "+str(grid_maxlen)
-    H_pad = H_pad.reshape((N,grid_maxlen,3600))
-
+    H_pad = H_pad.reshape((N,grid_maxlen,3600*2))
+    print H_pad.shape
     return T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad
 
 #####

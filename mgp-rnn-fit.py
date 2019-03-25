@@ -111,7 +111,7 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
         return Mu + tf.matmul(tf.cholesky(Sigma),xi)
     def large_draw():
         return Mu + block_Lanczos(Sigma_mul,xi,n_mc_smps) #no need to explicitly reshape Mu
-    BLOCK_LANC_THRESH = 1000000
+    BLOCK_LANC_THRESH = 900000
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
     #"""
 
@@ -268,13 +268,27 @@ if __name__ == "__main__":
         M = 25
         n_meds = 5
         n_covs = 9
+    elif args.high=="high" and args.sim=="data":
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_highf_mgp()
+        num_enc = len(num_obs_times)
+        M = 27
+        n_meds = 5
+        n_covs = 9
+    elif args.high=="high" and args.sim=="prevdata":
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_high_mimic_dataset()
+        num_enc = len(num_obs_times)
+        M = 27
+        n_meds = 5
+        n_covs = 9
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)
-    val_frac = 0.1 #fraction of full data to set aside for testing
+    val_frac = 0.3 #fraction of full data to set aside for testing
     te_ind = train_test_perm[:int(val_frac*N_tot)]
     labels_te = [labels[i] for i in te_ind]
     while (0 not in labels_te) or (1 not in labels_te):
@@ -434,11 +448,14 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
+            '''
             try:
                 loss_,_ = sess.run([loss,train_op],feed_dict)
             except:
                 batch += 1; total_batches += 1
                 continue
+            '''
+            loss_,_ = sess.run([loss,train_op],feed_dict)
             print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
                 ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()

@@ -72,7 +72,7 @@ def retrieve_sim_dataset_low():
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
-def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
+def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.7):
     """
     Returns everything we need to run the model.
 
@@ -85,7 +85,7 @@ def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2)
 
     #end_times = np.random.uniform(10,120,num_encs) #last observation time of the encounter
     #end time converted to in minutes
-    end_times = np.random.uniform(600,4200, num_encs)
+    end_times = np.random.uniform(600,12000, num_encs)
     num_obs_times = np.random.poisson(end_times/60,num_encs)+3 #number of observation time points per encounter, increase with  longer series
     num_obs_values = np.array(num_obs_times*M*trainfrac,dtype="int")
     #number of inputs to RNN. will be a grid on integers, starting at 0 and ending at next integer after end_time
