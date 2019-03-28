@@ -142,7 +142,7 @@ def prep_highf_mgp():
                         ind_kf_i.append(s_i)
                         ind_kt_i.append(t_index)
                 t_index += 1
-            if len(Y_i)>250:
+            if len(Y_i)>150:
                 #print "too many"+str(sub)
                 continue
             print "processing stay"+str(stay_no)
@@ -322,7 +322,7 @@ def prep_baseline_mgp():
             ind_kt.append(ind_kt_i)
             T.append(T_i.tolist())
             labels.append(label)
-            if len(labels)>=1000:
+            if len(labels)>=150:
                 breakflag = True
                 break
         if breakflag:

@@ -9,6 +9,7 @@ Some useful functions.
 """
 import tensorflow as tf
 import numpy as np
+import math
 
 def pad_rawdata(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs):
     """
@@ -100,7 +101,7 @@ def CG(A,b):
     #These settings are somewhat arbitrary
     #You might want to test sensitivity to these
     CG_EPS = tf.cast(n/1000,"float")
-    MAX_ITER = tf.div(n,250) + 3
+    MAX_ITER = tf.div(n,150) + 3
 
     def cond(i,x,r,p):
         return tf.logical_and(i < MAX_ITER, tf.norm(r) > CG_EPS)
@@ -191,16 +192,26 @@ def block_CG(A_,B_):
     R_ = tf.matrix_set_diag(tf.zeros((n,m)),tf.ones([diag_len]))
 
     #somewhat arbitrary again, may want to check sensitivity
-    CG_EPS = tf.cast(n/1000,"float")
+    CG_EPS = tf.cast(n/2000,"float")
     MAX_ITER = tf.div(n,250) + 3
 
     def cond(i,X,R_,R,V_):
         return tf.logical_and(i < MAX_ITER, tf.norm(R) > CG_EPS)
 
     def body(i,X,R_,R,V_):
-        S = tf.matrix_solve(tf.matmul(tf.transpose(R_),R_),
-                            tf.matmul(tf.transpose(R),R))
-        V = R + tf.matmul(V_,S)
+        #printop = tf.Print(R,[tf.shape(R)],"R is",-1,100)
+        #with tf.control_dependencies([printop]):
+        R__trans = tf.transpose(R_)
+        R_trans = tf.transpose(R)
+        R_mat2 = tf.matmul(R_trans, R, name='toi_2')
+        R_det = tf.matrix_determinant(R_mat2, name='det')
+        #printop = tf.Print(R_det, [i,R_det],"determinant",-1,10)
+        #with tf.control_dependencies([printop]):
+        S = tf.matrix_solve(tf.matmul(R__trans,R_,name='toi_1'),
+                            R_mat2)
+        printop = tf.Print(S,[S],"mat solved",-1,10)
+        with tf.control_dependencies([printop]):
+            V = R + tf.matmul(V_,S)
         T = tf.matrix_solve(tf.matmul(tf.transpose(V),tf.matmul(A_,V)),
                             tf.matmul(tf.transpose(R),R))
         X = X + tf.matmul(V,T)
@@ -237,7 +248,9 @@ def block_Lanczos(Sigma_func,B_,n_mc_smps):
         d_j = tf.squeeze(tf.slice(D,[0,0,j],[-1,-1,1]))
         d = Sigma_func(tf.transpose(d_j)) - (tf.slice(betas,[j-1,0],[1,-1])*
                 tf.transpose(tf.squeeze(tf.slice(D,[0,0,j-1],[-1,-1,1]))))
-        alphas = tf.concat([alphas,[tf.diag_part(tf.matmul(d_j,d))]],0)
+        printop = tf.Print(d,[d],"d is",-1,100)
+        with tf.control_dependencies([printop]):
+            alphas = tf.concat([alphas,[tf.diag_part(tf.matmul(d_j,d))]],0)
         d = d - tf.slice(alphas,[j-1,0],[1,-1])*tf.transpose(d_j)
         betas = tf.concat([betas,[tf.norm(d,axis=0)]],0)
         D = tf.concat([D,tf.expand_dims(tf.transpose(d/tf.slice(betas,[j,0],[1,-1])),2)],2)
@@ -247,7 +260,8 @@ def block_Lanczos(Sigma_func,B_,n_mc_smps):
     j,alphas,betas,D = tf.while_loop(cond,body,loop_vars=[j,alphas,betas,D],
         shape_invariants=[j.get_shape(),tf.TensorShape([None,None]),
                           tf.TensorShape([None,None]),tf.TensorShape([None,None,None])])
-
+    #printop = tf.Print(alphas, [alphas,betas,D],"alphas, betas and D:",-1,100)
+    #with tf.control_dependencies([printop]):
     D_ = tf.slice(D,[0,0,1],[-1,-1,k])
 
     ##TODO: replace loop
@@ -260,9 +274,10 @@ def block_Lanczos(Sigma_func,B_,n_mc_smps):
                   tf.pad(this_beta,[[1,0],[0,1]]) +
                    tf.pad(this_beta,[[0,1],[1,0]]))
         H = tf.concat([H,tf.expand_dims(this_H,0)],0)
-
-    E,V = tf.self_adjoint_eig(H)
-    E_sqrt = tf.zeros([0,k,k])
+    printop = tf.Print(H,[H, tf.shape(H)],"H is",-1,100)
+    with tf.control_dependencies([printop]):
+        E_sqrt = tf.zeros([0,k,k])
+    E,V = tf.self_adjoint_eig(H,name='self-adjoint-eigen')
     #TODO: replace loop
     for ss in range(s):
         #ensure positive definite

@@ -14,7 +14,7 @@ import numpy as np
 from time import time
 from sklearn.metrics import roc_auc_score, average_precision_score
 import sys
-
+import math
 from util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
 
 #####
@@ -213,31 +213,31 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
 
     #now get draws!
     y_ = tf.reshape(Yi,[-1,1])
-    #Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
+    Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
     Ly = tf.cholesky(Ky)
-    Mu = tf.matmul(K_fy,tf.cholesky_solve(Ly,y_))
+    #Mu = tf.matmul(K_fy,tf.cholesky_solve(Ly,y_))
+    xi = tf.random_normal((nx*M,n_mc_smps))
 
     #TODO: it's worth testing to see at what point computation speedup of Lanczos algorithm is useful & needed.
     # For smaller examples, using Cholesky will probably be faster than this unoptimized Lanczos implementation.
     # Likewise for CG and BCG vs just taking the Cholesky of Ky once
-    """
+    #"""
     #Never need to explicitly compute Sigma! Just need matrix products with Sigma in Lanczos algorithm
     def Sigma_mul(vec):
         # vec must be a 2d tensor, shape (?,?)
         return tf.matmul(K_ff,vec) - tf.matmul(K_fy,block_CG(Ky,tf.matmul(tf.transpose(K_fy),vec)))
 
     def small_draw():
+        Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
         return Mu + tf.matmul(tf.cholesky(Sigma),xi)
     def large_draw():
         return Mu + block_Lanczos(Sigma_mul,xi,n_mc_smps) #no need to explicitly reshape Mu
 
-    BLOCK_LANC_THRESH = 1000
+    BLOCK_LANC_THRESH = 100
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
-    """
+    #"""
 
-    xi = tf.random_normal((nx*M,n_mc_smps))
-    Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
-    draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
+    #draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
     draw_reshape = tf.transpose(tf.reshape(tf.transpose(draw),[n_mc_smps,M,nx]),perm=[0,2,1])
     return draw_reshape
 
@@ -347,7 +347,7 @@ if __name__ == "__main__":
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
-    num_encs=5000
+    num_encs=500
     M=15#10
     n_covs=3#10
     n_meds=2000#5

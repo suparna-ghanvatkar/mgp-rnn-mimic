@@ -111,7 +111,7 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
         return Mu + tf.matmul(tf.cholesky(Sigma),xi)
     def large_draw():
         return Mu + block_Lanczos(Sigma_mul,xi,n_mc_smps) #no need to explicitly reshape Mu
-    BLOCK_LANC_THRESH = 900000
+    BLOCK_LANC_THRESH = 90000
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
     #"""
 
@@ -244,6 +244,10 @@ if __name__ == "__main__":
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
             values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.high=="low" and args.sim=="prev":
+        num_encs=50#5000#10000
+        M=25#17#10
+        n_covs=3#10
+        n_meds=10#2938#5
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset_low()
     elif args.high=="high" and args.sim=="sim":
@@ -288,7 +292,7 @@ if __name__ == "__main__":
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)
-    val_frac = 0.3 #fraction of full data to set aside for testing
+    val_frac = 0.1 #fraction of full data to set aside for testing
     te_ind = train_test_perm[:int(val_frac*N_tot)]
     labels_te = [labels[i] for i in te_ind]
     while (0 not in labels_te) or (1 not in labels_te):
@@ -322,8 +326,8 @@ if __name__ == "__main__":
     #####
 
     # Learning Parameters
-    learning_rate = 0.001 #NOTE may need to play around with this or decay it
-    L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
+    learning_rate = 0.0001 #NOTE may need to play around with this or decay it
+    L2_penalty = 1e-3 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
     batch_size = 5 #NOTE may want to play around with this

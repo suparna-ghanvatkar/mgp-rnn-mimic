@@ -89,7 +89,7 @@ def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.7)
     num_obs_times = np.random.poisson(end_times/60,num_encs)+3 #number of observation time points per encounter, increase with  longer series
     num_obs_values = np.array(num_obs_times*M*trainfrac,dtype="int")
     #number of inputs to RNN. will be a grid on integers, starting at 0 and ending at next integer after end_time
-    print(num_obs_times)
+    #print(num_obs_times)
     num_rnn_grid_times = np.array(np.floor(end_times/60)+1,dtype="int")
     rnn_grid_times = []
     labels = rs.binomial(1,pos_class_rate,num_encs)
@@ -266,7 +266,7 @@ def sim_dataset(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.2):
             print('%d/%d' %(i,num_encs))
         #obs_times = np.insert(np.sort(np.random.uniform(0,end_times[i],num_obs_times[i]-1)),0,0)
         obs_times = np.arange(num_obs_times[i])*0.000133
-        print num_obs_times[i], num_obs_times_[i]
+        #print num_obs_times[i], num_obs_times_[i]
         obs_ind = np.random.choice(num_obs_times[i], num_obs_times_[i], replace=False).tolist()
         #print obs_times
         obs_times_ = obs_times[obs_ind]
@@ -356,7 +356,7 @@ def OU_kernel_np(length,x):
     """
     x1 = np.reshape(x,[-1,1]) #colvec
     x2 = np.reshape(x,[1,-1]) #rowvec
-    print x1.shape, x2.shape, length
+    #print x1.shape, x2.shape, length
     K_xx = np.exp(-np.abs(x1-x2)/length)
     #print K_xx.shape
     return K_xx
