@@ -253,9 +253,11 @@ if __name__ == "__main__":
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.sim=="data":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_baseline_mgp()
-        num_enc = len(num_obs_times)
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_baseline_mgp('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_baseline_mgp('val')
+        num_enc = len(num_obs_times_tr)
         M = 25
         n_meds = 5
         n_covs = 9
@@ -266,7 +268,7 @@ if __name__ == "__main__":
         M = 25
         n_meds = 5
         n_covs = 9
-
+    '''
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)
@@ -298,7 +300,9 @@ if __name__ == "__main__":
     rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
     H_tr = [high_freq[i] for i in tr_ind]; H_te = [high_freq[i] for i in te_ind]
-
+    '''
+    Ntr = len(covs_tr)
+    Nte = len(covs_te)
     print("data fully setup!")
     print("test labels are:%s"%labels_te)
     sys.stdout.flush()
@@ -312,7 +316,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 10 #NOTE may want to play around with this
+    batch_size = 4 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters

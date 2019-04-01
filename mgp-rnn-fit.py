@@ -90,23 +90,22 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
 
     #now get draws!
     y_ = tf.reshape(Yi,[-1,1])
-    Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
+    #Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
     Ly = tf.cholesky(Ky)
-    #Mu = tf.matmul(K_fy,tf.cholesky_solve(Ly,y_))
+    Mu = tf.matmul(K_fy,tf.cholesky_solve(Ly,y_))
+    xi = tf.random_normal((nx*M,n_mc_smps))
 
     #TODO: it's worth testing to see at what point computation speedup of Lanczos algorithm is useful & needed.
     # For smaller examples, using Cholesky will probably be faster than this unoptimized Lanczos implementation.
     # Likewise for CG and BCG vs just taking the Cholesky of Ky once
-    #"""
+    """
     #Never need to explicitly compute Sigma! Just need matrix products with Sigma in Lanczos algorithm
     def Sigma_mul(vec):
         # vec must be a 2d tensor, shape (?,?)
         return tf.matmul(K_ff,vec) - tf.matmul(K_fy,block_CG(Ky,tf.matmul(tf.transpose(K_fy),vec)))
 
-    xi = tf.random_normal((nx*M,n_mc_smps))
 
     def small_draw():
-        Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
 
         return Mu + tf.matmul(tf.cholesky(Sigma),xi)
     def large_draw():
@@ -114,10 +113,11 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
     BLOCK_LANC_THRESH = 90000
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
     #"""
+    Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
 
     #printop = tf.Print(Sigma, [Sigma], "The sigma is:", -1, 20)
     #with tf.control_dependencies([printop]):
-    #draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
+    draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
     draw_reshape = tf.transpose(tf.reshape(tf.transpose(draw),[n_mc_smps,M,nx]),perm=[0,2,1])
     return draw_reshape
 
@@ -241,7 +241,7 @@ if __name__ == "__main__":
         M=25#17#10
         n_covs=3#10
         n_meds=10#2938#5
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        (num_obs_times_tr,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
             values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.high=="low" and args.sim=="prev":
         num_encs=50#5000#10000
@@ -259,38 +259,47 @@ if __name__ == "__main__":
         values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
         #elif args.high=="high" and args.sim=="prev":
     elif args.high=="low" and args.sim=="data":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_baseline_mgp()
-        num_enc = len(num_obs_times)
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val')
+        num_enc = len(num_obs_times_tr)
         M = 25
         n_meds = 5
         n_covs = 9
     elif args.high=="low" and args.sim=="prevdata":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_mimic_dataset()
-        num_enc = len(num_obs_times)
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_mimic_dataset('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_mimic_dataset('val')
+        num_enc = len(num_obs_times_tr)
         M = 25
         n_meds = 5
         n_covs = 9
     elif args.high=="high" and args.sim=="data":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_highf_mgp()
-        num_enc = len(num_obs_times)
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_highf_mgp('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_highf_mgp('val')
+        num_enc = len(num_obs_times_tr)
         M = 27
         n_meds = 5
         n_covs = 9
     elif args.high=="high" and args.sim=="prevdata":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_high_mimic_dataset()
-        num_enc = len(num_obs_times)
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_high_mimic_dataset('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_high_mimic_dataset('val')
+        num_enc = len(num_obs_times_tr)
         M = 27
         n_meds = 5
         n_covs = 9
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
-    N_tot = len(labels) #total encounters
+    #N_tot = len(labels) #total encounters
 
+    '''
     train_test_perm = rs.permutation(N_tot)
     val_frac = 0.1 #fraction of full data to set aside for testing
     te_ind = train_test_perm[:int(val_frac*N_tot)]
@@ -316,9 +325,11 @@ if __name__ == "__main__":
     num_obs_values_tr = [num_obs_values[i] for i in tr_ind]; num_obs_values_te = [num_obs_values[i] for i in te_ind]
     rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
-
+    '''
+    Ntr = len(covs_tr)
+    Nte = len(covs_te)
     print("data fully setup!")
-    print("Total encounters:%s and total training samples:%s"%(N_tot,Ntr))
+    print("Total encounters:%s and total training samples:%s"%(Ntr+Nte,Ntr))
     sys.stdout.flush()
 
     #####
@@ -330,7 +341,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-3 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 5 #NOTE may want to play around with this
+    batch_size = 1 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
     #print test_freq
 
@@ -452,14 +463,15 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            '''
+            #'''
             try:
                 loss_,_ = sess.run([loss,train_op],feed_dict)
             except:
                 batch += 1; total_batches += 1
+                print("problem in %s"%(batch-1))
                 continue
-            '''
-            loss_,_ = sess.run([loss,train_op],feed_dict)
+            #'''
+            #loss_,_ = sess.run([loss,train_op],feed_dict)
             print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
                 ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
