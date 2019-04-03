@@ -497,6 +497,7 @@ if __name__ == "__main__":
                 sys.stdout.flush()
 
                 #create a folder and put model checkpoints there
+                pickle.dump(te_probs, open('mgp_'+args.high+'_pred_probs.pickle','w'))
                 #saver.save(sess, "MGP-RNN-test/", global_step=total_batches)
         print("Finishing epoch "+"{:d}".format(i)+", took "+\
               "{:.3f}".format(time()-epoch_start))

@@ -37,7 +37,7 @@ def prep_baseline_mgp(train):
     sub_stays_included = []
     '''
     sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
-    sub_stay = sub_stay[:10]
+    #sub_stay = sub_stay[:10]
     #print sub_stay
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
