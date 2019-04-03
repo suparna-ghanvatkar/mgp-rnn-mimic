@@ -30,6 +30,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
         Padded 2d np arrays of data, now of dim batchsize x batch_maxlen
     """
     H = Hi
+    print len(H)
     N = np.shape(T)[0] #num in batch
     num_meds = np.shape(meds_on_grid[0])[1]
     num_covs = np.shape(covs)[1]

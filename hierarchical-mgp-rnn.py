@@ -128,9 +128,9 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     """
     grid_max = tf.shape(X)[1]
     Z = tf.zeros([0,grid_max,input_dim])
-    printop = tf.Print(ind_kt, [ind_kt, num_obs_values],"The ind kt is:",-1, 15)
-    with tf.control_dependencies([printop]):
-        N = tf.shape(T)[0] #number of observations
+    #printop = tf.Print(ind_kt, [ind_kt, num_obs_values],"The ind kt is:",-1, 15)
+    #with tf.control_dependencies([printop]):
+    N = tf.shape(T)[0] #number of observations
 
     #setup tf while loop (have to use this bc loop size is variable)
     def cond(i,Z):
@@ -139,10 +139,10 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     def body(i,Z):
         Yi = tf.reshape(tf.slice(Y,[i,0],[1,num_obs_values[i]]),[-1])
         Ti = tf.reshape(tf.slice(T,[i,0],[1,num_obs_times[i]]),[-1])
-        printop = tf.Print(i, [i,N,tf.shape(waveform_outputs)], "current i is:",-1,10)
-        with tf.control_dependencies([printop]):
-            ind_kfi = tf.reshape(tf.slice(ind_kf,[i,0],[1,num_obs_values[i]]),[-1])
-            ind_kti = tf.reshape(tf.slice(ind_kt,[i,0],[1,num_obs_values[i]]),[-1])
+        #printop = tf.Print(i, [i,N,tf.shape(waveform_outputs)], "current i is:",-1,10)
+        #with tf.control_dependencies([printop]):
+        ind_kfi = tf.reshape(tf.slice(ind_kf,[i,0],[1,num_obs_values[i]]),[-1])
+        ind_kti = tf.reshape(tf.slice(ind_kt,[i,0],[1,num_obs_values[i]]),[-1])
         Xi = tf.reshape(tf.slice(X,[i,0],[1,num_rnn_grid_times[i]]),[-1])
         X_len = num_rnn_grid_times[i]
 
@@ -316,7 +316,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 4 #NOTE may want to play around with this
+    batch_size = 5 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
@@ -443,7 +443,7 @@ if __name__ == "__main__":
             T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                     vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
-            #print X_pad.shape
+            #print H_pad.shape
             #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
             feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
@@ -501,6 +501,7 @@ if __name__ == "__main__":
                 te_prc = average_precision_score(labels_te, pred_probs)
                 #auc = auc/no_iters
                 #prc = prc/no_iters
+                pickle.dump(pred_probs,open('hierarchical_pred_probs.pickle','w'))
                 print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
                       "{:.2f}".format(time()-test_t)+\
                       ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
