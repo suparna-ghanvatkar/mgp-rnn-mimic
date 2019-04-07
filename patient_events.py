@@ -3,6 +3,7 @@ import numpy as np
 from math import ceil, isnan
 import pickle
 from collections import defaultdict
+from sklearn.preprocessing import StandardScaler, Imputer, scale
 
 '''
 The baselines are: Ethnicity, Gender, Age, Height, Weight
@@ -62,7 +63,11 @@ def prep_highf_mgp(train):
     Ethnicity = {}
     eth_count = 0
     Gender = {'M':0, 'F':1}
-
+    #for generating the discrete numeric lables for glascow columns
+    glascow_eye_open = {}
+    glascow_motor = {}
+    glascow_total = {}
+    glascow_verbal = {}
     breakflag = False
 
     for sub,stay_no in sub_stay:
@@ -107,6 +112,10 @@ def prep_highf_mgp(train):
         #add the time from waveforms as well as that will have to be sorted into the T and appended and removed for duplicates from this T_i
         wave_t = [(i+1)*0.1 for i in range((len(grid_times)-1)*6)]
         T_i = sorted(list(set(t_i).union(set(wave_t))))
+        #creating map for the timeline hours into the final time indices
+        T_i_map = {n:i for i,n in enumerate(T_i)}
+        t_i_map = {i:T_i_map[n] for i,n in enumerate(t_i)}
+        wave_t_map = {i:T_i_map[n] for i,n in enumerate(wave_t)}
         #for every 10 minutes
         gran = 125*60*10
         wavem = wave.rolling(gran).mean()
@@ -116,6 +125,37 @@ def prep_highf_mgp(train):
         wavestd = wavestd.iloc[::gran]
         #this becomes param value for ind_kf??
         column_map = {n:i for i,n in enumerate(list(timeline.columns))}
+        #create and add discrete numeric values for glascow records
+        col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
+        for col,dlist in col_names:
+            tseries = timeline[col]
+            tseries = tseries.dropna()
+            for index, value in tseries.iteritems():
+                try:
+                    value = dlist[value]
+                except:
+                    dlist[value] = len(dlist)
+                    value = dlist[value]
+                Y_i.append(value)
+                ind_kf_i.append(column_map[col]-1)
+                ind_kt_i.append(t_i_map[index])
+        #drop the glascow and hours column and create a mask of values present
+        col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
+        timeline = timeline.drop(col_del,axis=1)
+        mask = timeline.notnull()
+        dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
+        #add values to Y,ind_kf and ind_kt acc to the mask
+        len_columns = len(timeline.columns)
+        for t in range(len(t_i)):
+            presence = mask.iloc[t]
+            #print presence
+            for i in range(len_columns):
+                if presence[i]==True:
+                    Y_i.append(timeline.iloc[t][i])
+                    ind_kf_i.append(dropped_col_map[i]-1)
+                    ind_kt_i.append(t_i_map[t])
+
+        '''
         len_columns = len(timeline.columns)
         m_i = len_columns
         s_i = m_i+1
@@ -146,6 +186,7 @@ def prep_highf_mgp(train):
                     ind_kf_i.append(s_i)
                     ind_kt_i.append(t_index)
             t_index += 1
+        '''
         #if len(Y_i)>150:
             #print "too many"+str(sub)
         #    continue
@@ -224,6 +265,7 @@ def prep_baseline_mgp(train):
     sub_stay = defaultdict(list)
     '''
     sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
+    sub_stay = sub_stay[:10]
     #subject_ids = subject_ids[:700]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
@@ -246,6 +288,11 @@ def prep_baseline_mgp(train):
     Ethnicity = {}
     eth_count = 0
     Gender = {'M':0, 'F':1}
+    #for generating the discrete numeric lables for glascow columns
+    glascow_eye_open = {}
+    glascow_motor = {}
+    glascow_total = {}
+    glascow_verbal = {}
 
     breakflag = False
 
@@ -287,33 +334,57 @@ def prep_baseline_mgp(train):
         grid_times = range(24)
         T_i = timeline.Hours
         column_map = {n:i for i,n in enumerate(list(timeline.columns))}
+        #the drop and remove neg Hours value screws up the indices. So create a map for the final index numbers in the data frame and the actually 't' index we want to index. useful to glascow vars
+        row_map = {n:i for i,n in enumerate(T_i.index)}
+        #create and add discrete numeric values for glascow records
+        col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
+        for col,dlist in col_names:
+            tseries = timeline[col]
+            tseries = tseries.dropna()
+            for index, value in tseries.iteritems():
+                try:
+                    value = dlist[value]
+                except:
+                    dlist[value] = len(dlist)
+                    value = dlist[value]
+                Y_i.append(value)
+                ind_kf_i.append(column_map[col]-1)
+                ind_kt_i.append(row_map[index])
+        #drop the glascow and hours column and create a mask of values present
+        #print timeline.shape
+        col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
+        timeline = timeline.drop(col_del,axis=1)
+        #print timeline.shape
+        mask = timeline.notnull()
+        dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
+        #log transform, impute and standardscaler
         len_columns = len(timeline.columns)
+        #timeline = timeline.apply(np.log)
+        #print timeline.shape
+        #imp = Imputer(strategy="mean",axis=0)
+        #timeline = scale(imp.fit_transform(timeline))
+        #print timeline.shape, len_columns, T_i.shape
+        #timeline = scaler.transform(imp.fit_transform(timeline))
+        #add values to Y,ind_kf and ind_kt acc to the mask
         for t in range(T_i.shape[0]):
-            values = timeline.iloc[t]
-            #print values
-            #values = np.log(values)
-            #print values
-            presence = timeline.iloc[t].isnull()
+            presence = mask.iloc[t]
             #print presence
-            for i in range(1,len_columns):
-                if presence[i]==False:
-                    if type(values[i]) is not str:
-                        if values[i]>0:
-                            Y_i.append(np.log(values[i]))
-                        else:
-                            Y_i.append(values[i])
-                        ind_kf_i.append(i-1)
-                        ind_kt_i.append(t)
+            for i in range(len_columns):
+                if presence[i]==True:
+                    Y_i.append(timeline.iloc[t][i])
+                    ind_kf_i.append(dropped_col_map[i]-1)
+                    ind_kt_i.append(t)
             #print Y_i
             #print ind_kf_i
             #print ind_kt_i
         #print timeline.head()
-        if len(Y_i)>200:
-            continue
+        #print T_i.shape
+        #if len(T_i)>35:
+        #    continue
         #sub_stay[sub].append(stay_no)
         rnn_grid_times.append(grid_times)
         end_times.append(len(rnn_grid_times[-1])-1)
-        num_obs_times.append(timeline.count()[0])
+        num_obs_times.append(len(T_i))
         #num_obs_values.append(np.sum(timeline.count()[1:]))
         num_obs_values.append(len(Y_i))
         num_rnn_grid_times.append(len(rnn_grid_times[-1]))
@@ -349,21 +420,22 @@ def prep_baseline_mgp(train):
     print np.array(num_obs_times).mean()
     print np.array(num_obs_values).mean()
     print np.array(num_rnn_grid_times).mean()
-    #print rnn_grid_times
-    #print labels
-    #print T
-    #print "printing Y"
-    #print Y
-    #print "kf"
-    #print ind_kf
-    #print "kt"
-    #print ind_kt
-    #print "meds"
-    #print meds_on_grid
-    #print "baselines"
-    #print baseline_covs
+    print rnn_grid_times
+    print labels
+    print T
+    print "printing Y"
+    print Y
+    print "kf"
+    print ind_kf
+    print "kt"
+    print ind_kt
+    print "meds"
+    print meds_on_grid
+    print "baselines"
+    print baseline_covs
     #'''
     #pickle.dump(sub_stay,open('sub_stay_mimic.pickle','w'))
+    '''
     pickle.dump(num_obs_times, open('num_obs_times_'+train+'_mimic.pickle','w'))
     pickle.dump(num_obs_values, open('num_obs_values_'+train+'_mimic.pickle','w'))
     pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times_'+train+'_mimic.pickle','w'))

@@ -341,7 +341,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-3 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 1 #NOTE may want to play around with this
+    batch_size = 5 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
     #print test_freq
 
@@ -469,6 +469,7 @@ if __name__ == "__main__":
             except:
                 batch += 1; total_batches += 1
                 print("problem in %s"%(batch-1))
+                print len(T_pad)
                 continue
             #'''
             #loss_,_ = sess.run([loss,train_op],feed_dict)
