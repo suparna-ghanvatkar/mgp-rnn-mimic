@@ -23,7 +23,6 @@ from util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_L
 from simulations import *
 from patient_events import *
 from tensorflow.python import debug as tf_debug
-import GPy, GPyOpt
 
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
@@ -558,4 +557,4 @@ if __name__ == "__main__":
         #      "{:.3f}".format(time()-epoch_start))
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs
-    print te_prc
+    print te_auc

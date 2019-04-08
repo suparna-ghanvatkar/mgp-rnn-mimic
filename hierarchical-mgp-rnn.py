@@ -236,6 +236,14 @@ def get_probs_and_accuracy(preds,O):
 def vectorize(l,ind):
     return [l[i] for i in ind]
 
+flags = tf.app.flags
+flags.DEFINE_float("lr",0.001,"")
+flags.DEFINE_float("l2_penalty",1e-3,"")
+flags.DEFINE_float("epochs",55.0,"")
+flags.DEFINE_float("batch",5.0,"")
+flags.DEFINE_float("n_layers",3.0,"")
+FLAGS=flags.FLAGS
+
 if __name__ == "__main__":
     seed = 8675309
     rs = np.random.RandomState(seed) #fixed seed in np
@@ -243,6 +251,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     #parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
     parser.add_argument('sim', type=str, help='prevsim/sim/data/prevdata')
+    parser.add_argument('-lr',type=float, help='lr value')
+    parser.add_argument("-l2_penalty",type=float)
+    parser.add_argument("-epochs",type=int)
+    parser.add_argument("-batch",type=float)
+    parser.add_argument("-n_layers",type=float)
     parser.add_argument('--debug', dest='debug')
     args = parser.parse_args()
     #####
@@ -280,7 +293,16 @@ if __name__ == "__main__":
         n_covs = 9
     #'''
     N_tot = len(labels) #total encounters
-
+    if args.lr:
+        FLAGS.lr = args.lr
+    if args.l2_penalty:
+        FLAGS.l2_penalty = args.l2_penalty
+    if args.epochs:
+        FLAGS.epochs = args.epochs
+    if args.batch:
+        FLAGS.batch = args.batch
+    if args.n_layers:
+        FLAGS.n_layers = args.n_layers
     train_test_perm = rs.permutation(N_tot)
     #train_test_perm = range(N_tot)
     val_frac = 0.1 #fraction of full data to set aside for testing
@@ -322,17 +344,17 @@ if __name__ == "__main__":
     #####
 
     # Learning Parameters
-    learning_rate = 0.001 #NOTE may need to play around with this or decay it
-    L2_penalty = 1e-2 #NOTE may need to play around with this some or try additional regularization
+    learning_rate = FLAGS.lr #0.0001#NOTE may need to play around with this or decay it
+    L2_penalty = FLAGS.l2_penalty #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
-    training_iters = 55 #num epochs
-    batch_size = 5 #NOTE may want to play around with this
+    training_iters = int(FLAGS.epochs) #num epochs
+    batch_size = int(FLAGS.batch) #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
     waveform_dim = 10
     n_hidden = 20 # hidden layer num of features; assumed same
-    n_layers = 3 # number of layers of stacked LSTMs
+    n_layers = int(FLAGS.n_layers) # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
     input_dim = M+n_meds+n_covs+waveform_dim #dimensionality of input sequence.
     n_mc_smps = 25
@@ -406,7 +428,7 @@ if __name__ == "__main__":
     ##### Get predictions and feed into optimization
     preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
     probs,accuracy = get_probs_and_accuracy(preds,O)
-
+    tf.summary.scalar('accuracy',accuracy)
     # Define optimization problem
     loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
     #loss_wave = tf.reduce_sum(tf.square(tf.get_variable('aux_output')))
@@ -416,13 +438,17 @@ if __name__ == "__main__":
             loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
     loss = loss_fit + loss_reg #+ loss_wave
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+    tf.summary.scalar('loss',loss)
+
     #Create a visualizer object
-    summary_writer = tf.summary.FileWriter('hierarchical_tensorboard',sess.graph)
+    merged = tf.summary.merge_all()
+    train_writer = tf.summary.FileWriter('hierarchical_tensorboard/train',sess.graph)
     if not os.path.exists('hierarchical_tensorboard'):
         os.makedirs('hierarchical_tensorboard')
+    test_writer = tf.summary.FileWriter('hierarchical_tensorboard/test')
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
-    print("Graph setup!")
+    #print("Graph setup!")
 
     #setup minibatch indices
     #print Ntr
@@ -444,7 +470,7 @@ if __name__ == "__main__":
     for i in range(training_iters):
         #train
         epoch_start = time()
-        print("Starting epoch "+"{:d}".format(i))
+        #print("Starting epoch "+"{:d}".format(i))
         perm = rs.permutation(Ntr)
         batch = 0
         for s,e in zip(starts,ends):
@@ -468,8 +494,8 @@ if __name__ == "__main__":
                 batch+=1; total_batches+=1
                 continue
             '''
-            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                  ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+            #print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+            #      ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
             batch += 1; total_batches += 1
 
@@ -477,7 +503,7 @@ if __name__ == "__main__":
                 #TODO: may also want to check validation performance at additional X hours back
                 #from the event time, as well as just checking performance at terminal time
                 #on the val set, so you know if it generalizes well further back in time as well
-                print("Testing")
+                #print("Testing")
                 test_t = time()
                 acc = 0.0
                 auc = 0.0
@@ -514,17 +540,18 @@ if __name__ == "__main__":
                 #auc = auc/no_iters
                 #prc = prc/no_iters
                 #pickle.dump(pred_probs,open('hierarchical_pred_probs.pickle','w'))
-                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                      "{:.2f}".format(time()-test_t)+\
-                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                      " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
-                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                #print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                #      "{:.2f}".format(time()-test_t)+\
+                #      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                #      " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
+                #      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
                 sys.stdout.flush()
 
                 #create a folder and put model checkpoints there
-                #saver.save(sess, "MGP-RNN-test/", global_step=total_batches)
-        print("Finishing epoch "+"{:d}".format(i)+", took "+\
-              "{:.3f}".format(time()-epoch_start))
+                saver.save(sess, "HIERARCHICAL_MGP/", global_step=total_batches)
+        #print("Finishing epoch "+"{:d}".format(i)+", took "+\
+        #      "{:.3f}".format(time()-epoch_start))
 
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs
+    print te_auc
