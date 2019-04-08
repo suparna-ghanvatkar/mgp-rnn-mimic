@@ -23,6 +23,7 @@ from util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_L
 from simulations import *
 from patient_events import *
 from tensorflow.python import debug as tf_debug
+import GPy, GPyOpt
 
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
@@ -224,6 +225,202 @@ def get_probs_and_accuracy(preds,O):
 def vectorize(l,ind):
     return [l[i] for i in ind]
 
+bounds = [{'name': 'lr', 'type': 'continuous',  'domain': (0.0, 0.1)},
+        {'name': 'l2_penalty', 'type': 'continuous',  'domain': (0.0, 0.01)},
+        {'name': 'epochs', 'type': 'discrete',  'domain': (30,40,45,50,55)},
+        {'name': 'batch', 'type': 'discrete',  'domain': (3,5,10,15,20)},
+        {'name': 'n_layers', 'type': 'discrete',  'domain': (2,3,4)}
+        ]
+
+def f(x):
+    print(x)
+    evaluation = model(
+        lr = float(x[:,0]), 
+        l2_penalty = float(x[:,1]), 
+        epochs = int(x[:,2]),
+        batch = int(x[:,3]),
+        n_layers = int(x[:,4]) 
+    print("LOSS:\t{0} \t AUC:\t{1}".format(evaluation[0], evaluation[1]))
+    #print(evaluation)
+    return evaluation[0]
+
+def model(lr,l2_penalty,epochs,batch,n_layers):
+    #####
+    ##### Setup model and graph
+    #####
+
+    # Learning Parameters
+    learning_rate = lr #NOTE may need to play around with this or decay it
+    L2_penalty = l2_penalty #NOTE may need to play around with this some or try additional regularization
+    #TODO: add dropout regularization
+    training_iters = epochs #num epochs
+    batch_size = batch #NOTE may want to play around with this
+    test_freq = Ntr/batch_size #eval on test set after this many batches
+    #print test_freq
+
+    # Network Parameters
+    n_hidden = 20 # hidden layer num of features; assumed same
+    n_layers = n_layers # number of layers of stacked LSTMs
+    n_classes = 2 #binary outcome
+    input_dim = M+n_meds+n_covs #dimensionality of input sequence.
+    n_mc_smps = 25
+
+    # Create graph
+    ops.reset_default_graph()
+    sess = tf.Session()
+    if args.debug:
+        sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+
+
+    ##### tf Graph - inputs
+
+    #observed values, times, inducing times; padded to longest in the batch
+    Y = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
+    T = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
+    ind_kf = tf.placeholder(tf.int32, [None,None]) #index tasks in Y vector
+    ind_kt = tf.placeholder(tf.int32, [None,None]) #index inputs in Y vector
+    X = tf.placeholder("float", [None,None]) #grid points. batchsize x batch_maxgridlen
+    med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
+
+    O = tf.placeholder(tf.int32, [None]) #labels. input is NOT as one-hot encoding; convert at each iter
+    num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
+    num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
+    num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
+
+    N = tf.shape(Y)[0]
+
+    #also make O one-hot encoding, for the loss function
+    O_dupe_onehot = tf.one_hot(tf.reshape(tf.tile(tf.expand_dims(O,1),[1,n_mc_smps]),[N*n_mc_smps]),n_classes)
+
+    ##### tf Graph - variables to learn
+
+    ### GP parameters (unconstrained)
+
+    #in fully separable case all labs share same time-covariance
+    log_length = tf.Variable(tf.random_normal([1],mean=1,stddev=0.1),name="GP-log-length")
+    length = tf.exp(log_length)
+
+    #different noise level of each lab
+    log_noises = tf.Variable(tf.random_normal([M],mean=-2,stddev=0.1),name="GP-log-noises")
+    noises = tf.exp(log_noises)
+
+    #init cov between labs
+    L_f_init = tf.Variable(tf.eye(M),name="GP-Lf")
+    Lf = tf.matrix_band_part(L_f_init,-1,0)
+    Kf = tf.matmul(Lf,tf.transpose(Lf))
+
+    ### RNN params
+
+    # Create network
+    stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
+
+    # Weights at the last layer given deep LSTM output
+    out_weights = tf.Variable(tf.random_normal([n_hidden, n_classes],stddev=0.1),name="Softmax/W")
+    out_biases = tf.Variable(tf.random_normal([n_classes],stddev=0.1),name="Softmax/b")
+
+    ##### Get predictions and feed into optimization
+    preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
+    #printop = tf.Print(preds, [preds], "The preds are:",-1,10)
+    #with tf.control_dependencies([printop]):
+    probs,accuracy = get_probs_and_accuracy(preds,O)
+
+    # Define optimization problem
+    loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
+    with tf.variable_scope("",reuse=True):
+        loss_reg = L2_penalty*tf.reduce_sum(tf.square(out_weights))
+        for i in range(n_layers):
+            loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
+    loss = loss_fit + loss_reg
+    train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+
+    ##### Initialize globals and get ready to start!
+    sess.run(tf.global_variables_initializer())
+    print("Graph setup!")
+
+    #Create a visualizer object
+    summary_writer = tf.summary.FileWriter('tensorboard',sess.graph)
+    if not os.path.exists('tensorboard'):
+        os.makedirs('tensorboard')
+    #setup minibatch indices
+    #print Ntr
+    #print batch_size
+    starts = np.arange(0,Ntr,batch_size)
+    ends = np.arange(batch_size,Ntr+1,batch_size)
+    #print ends
+    if ends[-1]<Ntr:
+        ends = np.append(ends,Ntr)
+    num_batches = len(ends)
+
+    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te = pad_rawdata(
+                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te)
+
+    ##### Main training loop
+    saver = tf.train.Saver(max_to_keep = None)
+    evaluation = []
+    total_batches = 0
+    for i in range(training_iters):
+        #train
+        epoch_start = time()
+        print("Starting epoch "+"{:d}".format(i))
+        perm = rs.permutation(Ntr)
+        batch = 0
+        for s,e in zip(starts,ends):
+            batch_start = time()
+            inds = perm[s:e]
+            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_rawdata(
+                    vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
+                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds))
+            #print meds_cov_pad
+            #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
+            feed_dict={Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+               med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
+               num_obs_values:vectorize(num_obs_values_tr,inds),
+               num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
+            #'''
+            try:
+                loss_,_ = sess.run([loss,train_op],feed_dict)
+            except:
+                batch += 1; total_batches += 1
+                print("problem in %s"%(batch-1))
+                print len(T_pad)
+                continue
+            #'''
+            #loss_,_ = sess.run([loss,train_op],feed_dict)
+            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+            sys.stdout.flush()
+            batch += 1; total_batches += 1
+
+            if total_batches % test_freq == 0: #Check val set every so often for early stopping
+                #TODO: may also want to check validation performance at additional X hours back
+                #from the event time, as well as just checking performance at terminal time
+                #on the val set, so you know if it generalizes well further back in time as well
+                print "starting eval"
+                test_t = time()
+                feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
+                       med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,
+                       num_obs_values:num_obs_values_te,num_rnn_grid_times:num_rnn_grid_times_te,O:labels_te}
+                te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)
+                te_auc = roc_auc_score(labels_te, te_probs)
+                te_prc = average_precision_score(labels_te, te_probs)
+                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                      "{:.2f}".format(time()-test_t)+\
+                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
+                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                sys.stdout.flush()
+                evaluation = [te_loss,te_auc,te_prc,te_acc]
+                #create a folder and put model checkpoints there
+                #pickle.dump(te_probs, open('mgp_'+args.high+'_pred_probs.pickle','w'))
+                #saver.save(sess, "MGP-RNN-test/", global_step=total_batches)
+        print("Finishing epoch "+"{:d}".format(i)+", took "+\
+              "{:.3f}".format(time()-epoch_start))
+        ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
+        ### Should converge reasonably quickly on this toy example with these settings in a few epochs
+    return evaluation
+
+
+
 if __name__ == "__main__":
     seed = 8675309
     rs = np.random.RandomState(seed) #fixed seed in np
@@ -332,176 +529,24 @@ if __name__ == "__main__":
     print("Total encounters:%s and total training samples:%s"%(Ntr+Nte,Ntr))
     sys.stdout.flush()
 
-    #####
-    ##### Setup model and graph
-    #####
+    # optimizer
+    opt_mgp = GPyOpt.methods.BayesianOptimization(f=f, domain=bounds)
 
-    # Learning Parameters
-    learning_rate = 0.0001 #NOTE may need to play around with this or decay it
-    L2_penalty = 1e-3 #NOTE may need to play around with this some or try additional regularization
-    #TODO: add dropout regularization
-    training_iters = 55 #num epochs
-    batch_size = 5 #NOTE may want to play around with this
-    test_freq = Ntr/batch_size #eval on test set after this many batches
-    #print test_freq
-
-    # Network Parameters
-    n_hidden = 20 # hidden layer num of features; assumed same
-    n_layers = 3 # number of layers of stacked LSTMs
-    n_classes = 2 #binary outcome
-    input_dim = M+n_meds+n_covs #dimensionality of input sequence.
-    n_mc_smps = 25
-
-    # Create graph
-    ops.reset_default_graph()
-    sess = tf.Session()
-    if args.debug:
-        sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+    # #### Running optimization
+    opt_mgp.run_optimization(max_iter=10)
 
 
-    ##### tf Graph - inputs
-
-    #observed values, times, inducing times; padded to longest in the batch
-    Y = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
-    T = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
-    ind_kf = tf.placeholder(tf.int32, [None,None]) #index tasks in Y vector
-    ind_kt = tf.placeholder(tf.int32, [None,None]) #index inputs in Y vector
-    X = tf.placeholder("float", [None,None]) #grid points. batchsize x batch_maxgridlen
-    med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
-
-    O = tf.placeholder(tf.int32, [None]) #labels. input is NOT as one-hot encoding; convert at each iter
-    num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
-    num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
-    num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
-
-    N = tf.shape(Y)[0]
-
-    #also make O one-hot encoding, for the loss function
-    O_dupe_onehot = tf.one_hot(tf.reshape(tf.tile(tf.expand_dims(O,1),[1,n_mc_smps]),[N*n_mc_smps]),n_classes)
-
-    ##### tf Graph - variables to learn
-
-    ### GP parameters (unconstrained)
-
-    #in fully separable case all labs share same time-covariance
-    log_length = tf.Variable(tf.random_normal([1],mean=1,stddev=0.1),name="GP-log-length")
-    length = tf.exp(log_length)
-
-    #different noise level of each lab
-    log_noises = tf.Variable(tf.random_normal([M],mean=-2,stddev=0.1),name="GP-log-noises")
-    noises = tf.exp(log_noises)
-
-    #init cov between labs
-    L_f_init = tf.Variable(tf.eye(M),name="GP-Lf")
-    Lf = tf.matrix_band_part(L_f_init,-1,0)
-    Kf = tf.matmul(Lf,tf.transpose(Lf))
-
-    ### RNN params
-
-    # Create network
-    stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
-
-    # Weights at the last layer given deep LSTM output
-    out_weights = tf.Variable(tf.random_normal([n_hidden, n_classes],stddev=0.1),name="Softmax/W")
-    out_biases = tf.Variable(tf.random_normal([n_classes],stddev=0.1),name="Softmax/b")
-
-    ##### Get predictions and feed into optimization
-    preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
-    #printop = tf.Print(preds, [preds], "The preds are:",-1,10)
-    #with tf.control_dependencies([printop]):
-    probs,accuracy = get_probs_and_accuracy(preds,O)
-
-    # Define optimization problem
-    loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
-    with tf.variable_scope("",reuse=True):
-        loss_reg = L2_penalty*tf.reduce_sum(tf.square(out_weights))
-        for i in range(n_layers):
-            loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
-    loss = loss_fit + loss_reg
-    train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
-
-    ##### Initialize globals and get ready to start!
-    sess.run(tf.global_variables_initializer())
-    print("Graph setup!")
-
-    #Create a visualizer object
-    summary_writer = tf.summary.FileWriter('tensorboard',sess.graph)
-    if not os.path.exists('tensorboard'):
-        os.makedirs('tensorboard')
-    #setup minibatch indices
-    #print Ntr
-    #print batch_size
-    starts = np.arange(0,Ntr,batch_size)
-    ends = np.arange(batch_size,Ntr+1,batch_size)
-    #print ends
-    if ends[-1]<Ntr:
-        ends = np.append(ends,Ntr)
-    num_batches = len(ends)
-
-    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te = pad_rawdata(
-                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te)
-
-    ##### Main training loop
-    saver = tf.train.Saver(max_to_keep = None)
-
-    total_batches = 0
-    for i in range(training_iters):
-        #train
-        epoch_start = time()
-        print("Starting epoch "+"{:d}".format(i))
-        perm = rs.permutation(Ntr)
-        batch = 0
-        for s,e in zip(starts,ends):
-            batch_start = time()
-            inds = perm[s:e]
-            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_rawdata(
-                    vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
-                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds))
-            #print meds_cov_pad
-            #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
-            feed_dict={Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
-               med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
-               num_obs_values:vectorize(num_obs_values_tr,inds),
-               num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            #'''
-            try:
-                loss_,_ = sess.run([loss,train_op],feed_dict)
-            except:
-                batch += 1; total_batches += 1
-                print("problem in %s"%(batch-1))
-                print len(T_pad)
-                continue
-            #'''
-            #loss_,_ = sess.run([loss,train_op],feed_dict)
-            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
-            sys.stdout.flush()
-            batch += 1; total_batches += 1
-
-            if total_batches % test_freq == 0: #Check val set every so often for early stopping
-                #TODO: may also want to check validation performance at additional X hours back
-                #from the event time, as well as just checking performance at terminal time
-                #on the val set, so you know if it generalizes well further back in time as well
-                print "starting eval"
-                test_t = time()
-                feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
-                       med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,
-                       num_obs_values:num_obs_values_te,num_rnn_grid_times:num_rnn_grid_times_te,O:labels_te}
-                te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)
-                te_auc = roc_auc_score(labels_te, te_probs)
-                te_prc = average_precision_score(labels_te, te_probs)
-                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                      "{:.2f}".format(time()-test_t)+\
-                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
-                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
-                sys.stdout.flush()
-
-                #create a folder and put model checkpoints there
-                pickle.dump(te_probs, open('mgp_'+args.high+'_pred_probs.pickle','w'))
-                #saver.save(sess, "MGP-RNN-test/", global_step=total_batches)
-        print("Finishing epoch "+"{:d}".format(i)+", took "+\
-              "{:.3f}".format(time()-epoch_start))
-
-        ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
-        ### Should converge reasonably quickly on this toy example with these settings in a few epochs
+    # #### The output
+    print("""
+    Optimized Parameters:
+    \t{0}:\t{1}
+    \t{2}:\t{3}
+    \t{4}:\t{5}
+    \t{6}:\t{7}
+    \t{8}:\t{9}
+    """.format(bounds[0]["name"],opt_mgp.x_opt[0],
+            bounds[1]["name"],opt_mgp.x_opt[1],
+            bounds[2]["name"],opt_mgp.x_opt[2],
+            bounds[3]["name"],opt_mgp.x_opt[3],
+            bounds[4]["name"],opt_mgp.x_opt[4]))
+    print("optimized loss: {0}".format(opt_mnist.fx_opt))
