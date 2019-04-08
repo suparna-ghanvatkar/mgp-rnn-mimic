@@ -449,7 +449,7 @@ def prep_baseline_mgp(train):
             print("dataset ends at %s"%sub)
             break
     #print("num of grid times:%s"%num_rnn_grid_times)
-    #'''
+    '''
     print np.array(num_obs_times).mean()
     print np.array(num_obs_values).mean()
     print np.array(num_rnn_grid_times).mean()

@@ -235,32 +235,143 @@ bounds = [{'name': 'lr', 'type': 'continuous',  'domain': (0.0, 0.1)},
 def f(x):
     print(x)
     evaluation = model(
-        lr = float(x[:,0]), 
-        l2_penalty = float(x[:,1]), 
+        lr = float(x[:,0]),
+        l2_penalty = float(x[:,1]),
         epochs = int(x[:,2]),
         batch = int(x[:,3]),
-        n_layers = int(x[:,4]) 
+        n_layers = int(x[:,4]))
     print("LOSS:\t{0} \t AUC:\t{1}".format(evaluation[0], evaluation[1]))
     #print(evaluation)
     return evaluation[0]
 
-def model(lr,l2_penalty,epochs,batch,n_layers):
+flags = tf.app.flags
+flags.DEFINE_float("lr",0.001,"")
+FLAGS=flags.FLAGS
+
+if __name__ == "__main__":
+    seed = 8675309
+    rs = np.random.RandomState(seed) #fixed seed in np
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
+    parser.add_argument('sim', type=str, help='prev/sim/data/prevdata')
+    parser.add_argument('-lr',type=float, help='lr value')
+    parser.add_argument('--debug', dest='debug')
+    args = parser.parse_args()
+    #####
+    ##### Setup ground truth and sim some data from a GP
+    #####
+    if args.high=="low" and args.sim=="sim":
+        num_encs=50#5000#10000
+        M=25#17#10
+        n_covs=3#10
+        n_meds=10#2938#5
+        (num_obs_times_tr,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+            values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
+    elif args.high=="low" and args.sim=="prev":
+        num_encs=50#5000#10000
+        M=25#17#10
+        n_covs=3#10
+        n_meds=10#2938#5
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset_low()
+    elif args.high=="high" and args.sim=="sim":
+        num_encs=50#5000#10000
+        M=15#17#10
+        n_covs=3#10
+        n_meds=10#2938#5
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
+        #elif args.high=="high" and args.sim=="prev":
+    elif args.high=="low" and args.sim=="data":
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val')
+        num_enc = len(num_obs_times_tr)
+        M = 25
+        n_meds = 5
+        n_covs = 9
+    elif args.high=="low" and args.sim=="prevdata":
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_mimic_dataset('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_mimic_dataset('val')
+        num_enc = len(num_obs_times_tr)
+        M = 25
+        n_meds = 5
+        n_covs = 9
+    elif args.high=="high" and args.sim=="data":
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_highf_mgp('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_highf_mgp('val')
+        num_enc = len(num_obs_times_tr)
+        M = 27
+        n_meds = 5
+        n_covs = 9
+    elif args.high=="high" and args.sim=="prevdata":
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_high_mimic_dataset('train')
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_high_mimic_dataset('val')
+        num_enc = len(num_obs_times_tr)
+        M = 27
+        n_meds = 5
+        n_covs = 9
+    else:
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
+    #N_tot = len(labels) #total encounters
+    FLAGS.lr = args.lr
+    '''
+    train_test_perm = rs.permutation(N_tot)
+    val_frac = 0.1 #fraction of full data to set aside for testing
+    te_ind = train_test_perm[:int(val_frac*N_tot)]
+    labels_te = [labels[i] for i in te_ind]
+    while (0 not in labels_te) or (1 not in labels_te):
+        train_test_perm = rs.permutation(N_tot)
+        te_ind = train_test_perm[:int(val_frac*N_tot)]
+        labels_te = [labels[i] for i in te_ind]
+    tr_ind = train_test_perm[int(val_frac*N_tot):]
+    labels_tr = [labels[i] for i in tr_ind]
+    Nte = len(te_ind); Ntr = len(tr_ind)
+
+    #print tr_ind
+    #print te_ind
+    #Break everything out into train/test
+    covs_tr = [covs[i] for i in tr_ind]; covs_te = [covs[i] for i in te_ind]
+    times_tr = [times[i] for i in tr_ind]; times_te = [times[i] for i in te_ind]
+    values_tr = [values[i] for i in tr_ind]; values_te = [values[i] for i in te_ind]
+    ind_lvs_tr = [ind_lvs[i] for i in tr_ind]; ind_lvs_te = [ind_lvs[i] for i in te_ind]
+    ind_times_tr = [ind_times[i] for i in tr_ind]; ind_times_te = [ind_times[i] for i in te_ind]
+    meds_on_grid_tr = [meds_on_grid[i] for i in tr_ind]; meds_on_grid_te = [meds_on_grid[i] for i in te_ind]
+    num_obs_times_tr = [num_obs_times[i] for i in tr_ind]; num_obs_times_te = [num_obs_times[i] for i in te_ind]
+    num_obs_values_tr = [num_obs_values[i] for i in tr_ind]; num_obs_values_te = [num_obs_values[i] for i in te_ind]
+    rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
+    num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
+    '''
+    Ntr = len(covs_tr)
+    Nte = len(covs_te)
+    print("data fully setup!")
+    print("Total encounters:%s and total training samples:%s"%(Ntr+Nte,Ntr))
+    sys.stdout.flush()
     #####
     ##### Setup model and graph
     #####
 
     # Learning Parameters
-    learning_rate = lr #NOTE may need to play around with this or decay it
-    L2_penalty = l2_penalty #NOTE may need to play around with this some or try additional regularization
+    learning_rate = FLAGS.lr #0.0001#NOTE may need to play around with this or decay it
+    L2_penalty = 1e-3 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
-    training_iters = epochs #num epochs
-    batch_size = batch #NOTE may want to play around with this
+    training_iters = 55 #num epochs
+    batch_size = 5 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
     #print test_freq
 
     # Network Parameters
     n_hidden = 20 # hidden layer num of features; assumed same
-    n_layers = n_layers # number of layers of stacked LSTMs
+    n_layers = 3 # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
     input_dim = M+n_meds+n_covs #dimensionality of input sequence.
     n_mc_smps = 25
@@ -335,7 +446,7 @@ def model(lr,l2_penalty,epochs,batch,n_layers):
 
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
-    print("Graph setup!")
+    #print("Graph setup!")
 
     #Create a visualizer object
     summary_writer = tf.summary.FileWriter('tensorboard',sess.graph)
@@ -361,7 +472,7 @@ def model(lr,l2_penalty,epochs,batch,n_layers):
     for i in range(training_iters):
         #train
         epoch_start = time()
-        print("Starting epoch "+"{:d}".format(i))
+        #print("Starting epoch "+"{:d}".format(i))
         perm = rs.permutation(Ntr)
         batch = 0
         for s,e in zip(starts,ends):
@@ -381,13 +492,13 @@ def model(lr,l2_penalty,epochs,batch,n_layers):
                 loss_,_ = sess.run([loss,train_op],feed_dict)
             except:
                 batch += 1; total_batches += 1
-                print("problem in %s"%(batch-1))
-                print len(T_pad)
+                #print("problem in %s"%(batch-1))
+                #print len(T_pad)
                 continue
             #'''
             #loss_,_ = sess.run([loss,train_op],feed_dict)
-            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+            #print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+            #    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
             batch += 1; total_batches += 1
 
@@ -395,7 +506,7 @@ def model(lr,l2_penalty,epochs,batch,n_layers):
                 #TODO: may also want to check validation performance at additional X hours back
                 #from the event time, as well as just checking performance at terminal time
                 #on the val set, so you know if it generalizes well further back in time as well
-                print "starting eval"
+                #print "starting eval"
                 test_t = time()
                 feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
                        med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,
@@ -403,150 +514,18 @@ def model(lr,l2_penalty,epochs,batch,n_layers):
                 te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)
                 te_auc = roc_auc_score(labels_te, te_probs)
                 te_prc = average_precision_score(labels_te, te_probs)
-                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                      "{:.2f}".format(time()-test_t)+\
-                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
-                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                #print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                #      "{:.2f}".format(time()-test_t)+\
+                #      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                #      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
+                #      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
                 sys.stdout.flush()
                 evaluation = [te_loss,te_auc,te_prc,te_acc]
                 #create a folder and put model checkpoints there
                 #pickle.dump(te_probs, open('mgp_'+args.high+'_pred_probs.pickle','w'))
                 #saver.save(sess, "MGP-RNN-test/", global_step=total_batches)
-        print("Finishing epoch "+"{:d}".format(i)+", took "+\
-              "{:.3f}".format(time()-epoch_start))
+        #print("Finishing epoch "+"{:d}".format(i)+", took "+\
+        #      "{:.3f}".format(time()-epoch_start))
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs
-    return evaluation
-
-
-
-if __name__ == "__main__":
-    seed = 8675309
-    rs = np.random.RandomState(seed) #fixed seed in np
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
-    parser.add_argument('sim', type=str, help='prev/sim/data/prevdata')
-    parser.add_argument('--debug', dest='debug')
-    args = parser.parse_args()
-    #####
-    ##### Setup ground truth and sim some data from a GP
-    #####
-    if args.high=="low" and args.sim=="sim":
-        num_encs=50#5000#10000
-        M=25#17#10
-        n_covs=3#10
-        n_meds=10#2938#5
-        (num_obs_times_tr,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-            values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset_low(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
-    elif args.high=="low" and args.sim=="prev":
-        num_encs=50#5000#10000
-        M=25#17#10
-        n_covs=3#10
-        n_meds=10#2938#5
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset_low()
-    elif args.high=="high" and args.sim=="sim":
-        num_encs=50#5000#10000
-        M=15#17#10
-        n_covs=3#10
-        n_meds=10#2938#5
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
-        #elif args.high=="high" and args.sim=="prev":
-    elif args.high=="low" and args.sim=="data":
-        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train')
-        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val')
-        num_enc = len(num_obs_times_tr)
-        M = 25
-        n_meds = 5
-        n_covs = 9
-    elif args.high=="low" and args.sim=="prevdata":
-        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_mimic_dataset('train')
-        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_mimic_dataset('val')
-        num_enc = len(num_obs_times_tr)
-        M = 25
-        n_meds = 5
-        n_covs = 9
-    elif args.high=="high" and args.sim=="data":
-        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_highf_mgp('train')
-        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_highf_mgp('val')
-        num_enc = len(num_obs_times_tr)
-        M = 27
-        n_meds = 5
-        n_covs = 9
-    elif args.high=="high" and args.sim=="prevdata":
-        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_high_mimic_dataset('train')
-        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_high_mimic_dataset('val')
-        num_enc = len(num_obs_times_tr)
-        M = 27
-        n_meds = 5
-        n_covs = 9
-    else:
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
-    #N_tot = len(labels) #total encounters
-
-    '''
-    train_test_perm = rs.permutation(N_tot)
-    val_frac = 0.1 #fraction of full data to set aside for testing
-    te_ind = train_test_perm[:int(val_frac*N_tot)]
-    labels_te = [labels[i] for i in te_ind]
-    while (0 not in labels_te) or (1 not in labels_te):
-        train_test_perm = rs.permutation(N_tot)
-        te_ind = train_test_perm[:int(val_frac*N_tot)]
-        labels_te = [labels[i] for i in te_ind]
-    tr_ind = train_test_perm[int(val_frac*N_tot):]
-    labels_tr = [labels[i] for i in tr_ind]
-    Nte = len(te_ind); Ntr = len(tr_ind)
-
-    #print tr_ind
-    #print te_ind
-    #Break everything out into train/test
-    covs_tr = [covs[i] for i in tr_ind]; covs_te = [covs[i] for i in te_ind]
-    times_tr = [times[i] for i in tr_ind]; times_te = [times[i] for i in te_ind]
-    values_tr = [values[i] for i in tr_ind]; values_te = [values[i] for i in te_ind]
-    ind_lvs_tr = [ind_lvs[i] for i in tr_ind]; ind_lvs_te = [ind_lvs[i] for i in te_ind]
-    ind_times_tr = [ind_times[i] for i in tr_ind]; ind_times_te = [ind_times[i] for i in te_ind]
-    meds_on_grid_tr = [meds_on_grid[i] for i in tr_ind]; meds_on_grid_te = [meds_on_grid[i] for i in te_ind]
-    num_obs_times_tr = [num_obs_times[i] for i in tr_ind]; num_obs_times_te = [num_obs_times[i] for i in te_ind]
-    num_obs_values_tr = [num_obs_values[i] for i in tr_ind]; num_obs_values_te = [num_obs_values[i] for i in te_ind]
-    rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
-    num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
-    '''
-    Ntr = len(covs_tr)
-    Nte = len(covs_te)
-    print("data fully setup!")
-    print("Total encounters:%s and total training samples:%s"%(Ntr+Nte,Ntr))
-    sys.stdout.flush()
-
-    # optimizer
-    opt_mgp = GPyOpt.methods.BayesianOptimization(f=f, domain=bounds)
-
-    # #### Running optimization
-    opt_mgp.run_optimization(max_iter=10)
-
-
-    # #### The output
-    print("""
-    Optimized Parameters:
-    \t{0}:\t{1}
-    \t{2}:\t{3}
-    \t{4}:\t{5}
-    \t{6}:\t{7}
-    \t{8}:\t{9}
-    """.format(bounds[0]["name"],opt_mgp.x_opt[0],
-            bounds[1]["name"],opt_mgp.x_opt[1],
-            bounds[2]["name"],opt_mgp.x_opt[2],
-            bounds[3]["name"],opt_mgp.x_opt[3],
-            bounds[4]["name"],opt_mgp.x_opt[4]))
-    print("optimized loss: {0}".format(opt_mnist.fx_opt))
+    print te_prc

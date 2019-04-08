@@ -1,0 +1,23 @@
+{
+    "name":"mgp-trial",
+    "algorithm":"BayesianOptimization",
+    "trialNumber":3,
+    "concurrency":1,
+    "path":"~/mgp-rnn-mimic/",
+    "command":"python ./mgp-rnn-fit.py low data",
+    "search_space": {
+        "goal":"MAXIMIZE",
+        "randomInitTrials":1,
+        "maxTrials":5,
+        "params":[
+            {
+                "parameterName":"lr",
+                "type":"DOUBLE",
+                "minValue":0.0001,
+                "maxValue":0.1,
+                "feasiblePoints":"",
+                "scalingType":"LINEAR"
+            }
+        ]
+    }
+}
