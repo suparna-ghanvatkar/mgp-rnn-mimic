@@ -4,11 +4,11 @@
     "trialNumber":3,
     "concurrency":1,
     "path":"~/mgp-rnn-mimic/",
-    "command":"python ./mgp-rnn-fit.py low data",
+    "command":"python ./mgp-rnn-baseline.py low data",
     "search_space": {
         "goal":"MAXIMIZE",
         "randomInitTrials":1,
-        "maxTrials":15,
+        "maxTrials":35,
         "params":[
             {
                 "parameterName":"lr",

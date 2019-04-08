@@ -260,10 +260,10 @@ if __name__ == "__main__":
     parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
     parser.add_argument('sim', type=str, help='prev/sim/data/prevdata')
     parser.add_argument('-lr',type=float, help='lr value')
-    parser.add_argument("-l2_penalty",type=float,"")
-    parser.add_argument("-epochs",type=int,"")
-    parser.add_argument("-batch",type=int,"")
-    parser.add_argument("-n_layers",type=int,"")
+    parser.add_argument("-l2_penalty",type=float)
+    parser.add_argument("-epochs",type=int)
+    parser.add_argument("-batch",type=float)
+    parser.add_argument("-n_layers",type=float)
     parser.add_argument('--debug', dest='debug')
     args = parser.parse_args()
     #####
@@ -385,14 +385,14 @@ if __name__ == "__main__":
     learning_rate = FLAGS.lr #0.0001#NOTE may need to play around with this or decay it
     L2_penalty = FLAGS.l2_penalty #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
-    training_iters = FLAGS.epochs #num epochs
-    batch_size = FLAGS.batch #NOTE may want to play around with this
+    training_iters = int(FLAGS.epochs) #num epochs
+    batch_size = int(FLAGS.batch) #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
     #print test_freq
 
     # Network Parameters
     n_hidden = 20 # hidden layer num of features; assumed same
-    n_layers = FLAGS.n_layers # number of layers of stacked LSTMs
+    n_layers = int(FLAGS.n_layers) # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
     input_dim = M+n_meds+n_covs #dimensionality of input sequence.
     n_mc_smps = 25
@@ -465,7 +465,7 @@ if __name__ == "__main__":
     loss = loss_fit + loss_reg
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
     tf.summary.scalar('loss',loss)
-    
+
     #Create a visualizer object
     merged = tf.summary.merge_all()
     train_writer = tf.summary.FileWriter('tensorboard/'+args.high+'/train',sess.graph)
@@ -558,4 +558,4 @@ if __name__ == "__main__":
         #      "{:.3f}".format(time()-epoch_start))
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs
-    print te_auc
+    print te_prc

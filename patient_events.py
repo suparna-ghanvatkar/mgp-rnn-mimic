@@ -3,6 +3,8 @@ import numpy as np
 from math import ceil, isnan
 import pickle
 from collections import defaultdict
+import wfdb
+import datetime
 from sklearn.preprocessing import StandardScaler, Imputer, scale
 
 '''
@@ -117,6 +119,7 @@ def prep_highf_mgp(train):
             #print "baseline"+str(sub)
             continue
         t_i = timeline.Hours
+        print signal.shape
         #add the time from waveforms as well as that will have to be sorted into the T and appended and removed for duplicates from this T_i
         wave_t = [i*1.667 for i in range(len(grid_times)*6)]
         T_i = sorted(list(set(t_i).union(set(wave_t))))
@@ -131,7 +134,8 @@ def prep_highf_mgp(train):
         endtime = starttime+datetime.timedelta(hours=24)
         base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
         start_row = int(ceil((base_time-starttime).total_seconds())//600)
-        signal = np.pad(signal,((0,(int(ceil(len(signal)/gran)*gran))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
+        signal = np.pad(signal,((0,(int(ceil(len(signal)/(125.0*600))*gran))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
+        print signal.shape
         end_row = start_row+(signal.shape[0]/gran)
         last_row = 24*6
         if last_row<end_row:
@@ -167,8 +171,9 @@ def prep_highf_mgp(train):
             presence = mask.iloc[t]
             #print presence
             for i in range(len_columns):
-                if presence[i]==True:
-                    Y_i.append(timeline.iloc[t][i])
+                value = timeline.iloc[t][i]
+                if presence[i]==True and type(value) is not str:
+                    Y_i.append(value)
                     ind_kf_i.append(dropped_col_map[i]-1)
                     ind_kt_i.append(t_i_map[t])
         for index in range(start_row,end_row):
