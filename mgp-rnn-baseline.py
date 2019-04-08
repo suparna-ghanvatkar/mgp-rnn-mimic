@@ -284,11 +284,13 @@ if __name__ == "__main__":
         values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
         #elif args.high=="high" and args.sim=="prev":
     elif args.high=="low" and args.sim=="data":
-        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train')
-        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val')
-        num_enc = len(num_obs_times_tr)
+        #(num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        #values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train')
+        #(num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        #values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val')
+        #num_enc = len(num_obs_times_tr)
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_baseline_mgp('train')
         M = 25
         n_meds = 5
         n_covs = 9
@@ -322,11 +324,12 @@ if __name__ == "__main__":
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
-    #N_tot = len(labels) #total encounters
-    FLAGS.lr = args.lr
-    '''
+    N_tot = len(labels) #total encounters
+    if args.lr:
+        FLAGS.lr = args.lr
+    #'''
     train_test_perm = rs.permutation(N_tot)
-    val_frac = 0.1 #fraction of full data to set aside for testing
+    val_frac = 0.2 #fraction of full data to set aside for testing
     te_ind = train_test_perm[:int(val_frac*N_tot)]
     labels_te = [labels[i] for i in te_ind]
     while (0 not in labels_te) or (1 not in labels_te):
@@ -350,7 +353,7 @@ if __name__ == "__main__":
     num_obs_values_tr = [num_obs_values[i] for i in tr_ind]; num_obs_values_te = [num_obs_values[i] for i in te_ind]
     rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
-    '''
+    #'''
     Ntr = len(covs_tr)
     Nte = len(covs_te)
     print("data fully setup!")
@@ -365,7 +368,7 @@ if __name__ == "__main__":
     L2_penalty = 1e-3 #NOTE may need to play around with this some or try additional regularization
     #TODO: add dropout regularization
     training_iters = 55 #num epochs
-    batch_size = 5 #NOTE may want to play around with this
+    batch_size = 1 #NOTE may want to play around with this
     test_freq = Ntr/batch_size #eval on test set after this many batches
     #print test_freq
 
@@ -443,7 +446,7 @@ if __name__ == "__main__":
             loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
     loss = loss_fit + loss_reg
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
-
+    tf.summary.scalar('loss',loss)
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
     #print("Graph setup!")
@@ -528,4 +531,4 @@ if __name__ == "__main__":
         #      "{:.3f}".format(time()-epoch_start))
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs
-    print te_prc
+    print te_auc

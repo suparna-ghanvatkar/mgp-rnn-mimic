@@ -297,8 +297,10 @@ def prep_baseline_mgp(train):
     subject_ids = [int(x[0]) for x in lines]
     sub_stay = defaultdict(list)
     '''
-    sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
-    sub_stay = sub_stay[:10]
+    #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
+    #sub_stay = sub_stay[:10]
+    sub_stay = pickle.load(open('final_substays.pickle','r'))
+    sub_stay = sub_stay[:20]
     #subject_ids = subject_ids[:700]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
@@ -329,7 +331,7 @@ def prep_baseline_mgp(train):
 
     breakflag = False
 
-    for sub,stay_no in sub_stay:
+    for sub,stay_no,date,index in sub_stay:
         print("Preparing subject %s"%str(sub))
         Y_i = []
         ind_kf_i = []
@@ -339,7 +341,7 @@ def prep_baseline_mgp(train):
         intime = pd.to_datetime(stays['INTIME'])
         outtime = pd.to_datetime(stays['OUTTIME'])
         starttime = intime.dt.round('1h')
-        label = stays['MORTALITY_INHOSPITAL'][0]
+        label = stays['MORTALITY_INHOSPITAL'][stay_no]
         #for stay_no in range(stays.shape[0]):
         try:
             timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
@@ -403,8 +405,9 @@ def prep_baseline_mgp(train):
             presence = mask.iloc[t]
             #print presence
             for i in range(len_columns):
-                if presence[i]==True:
-                    Y_i.append(timeline.iloc[t][i])
+                value = timeline.iloc[t][i]
+                if presence[i]==True and type(value) is not str:
+                    Y_i.append(value)
                     ind_kf_i.append(dropped_col_map[i]-1)
                     ind_kt_i.append(t)
             #print Y_i
@@ -449,10 +452,11 @@ def prep_baseline_mgp(train):
             print("dataset ends at %s"%sub)
             break
     #print("num of grid times:%s"%num_rnn_grid_times)
-    '''
+    #'''
     print np.array(num_obs_times).mean()
     print np.array(num_obs_values).mean()
     print np.array(num_rnn_grid_times).mean()
+    '''
     print rnn_grid_times
     print labels
     print T
