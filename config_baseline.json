@@ -1,0 +1,53 @@
+{
+    "name":"mgp-trial",
+    "algorithm":"BayesianOptimization",
+    "trialNumber":3,
+    "concurrency":1,
+    "path":"~/mgp-rnn-mimic/",
+    "command":"python ./mgp-rnn-fit.py low data",
+    "search_space": {
+        "goal":"MAXIMIZE",
+        "randomInitTrials":1,
+        "maxTrials":15,
+        "params":[
+            {
+                "parameterName":"lr",
+                "type":"DOUBLE",
+                "minValue":0.0001,
+                "maxValue":0.1,
+                "feasiblePoints":"",
+                "scalingType":"LINEAR"
+            },
+            {
+                "parameterName":"l2_penalty",
+                "type":"DOUBLE",
+                "minValue":1e-7,
+                "maxValue":0.1,
+                "scalingType":"LINEAR"
+            },
+            {
+                "parameterName":"epochs",
+                "type":"INTEGER",
+                "minValue":40,
+                "maxValue":90,
+                "scalingType":"LINEAR"
+            },
+            {
+                "parameterName":"batch",
+                "type":"DISCRETE",
+                "minValue":"",
+                "maxValue":"",
+                "feasiblePoints":"5,10,15,20,25",
+                "scalingType":"LINEAR"
+            },
+            {
+                "parameterName":"n_layers",
+                "type":"DISCRETE",
+                "minValue":"",
+                "maxValue":"",
+                "feasiblePoints":"3,4,5",
+                "scalingType":"LINEAR"
+            }
+        ]
+    }
+}

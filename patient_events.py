@@ -39,8 +39,10 @@ def prep_highf_mgp(train):
     for (sub,stay) in sub_stays_included:
         sub_stay[sub].append(stay)
     '''
-    sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
-    sub_stay = sub_stay[:10]
+    #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
+    #sub_stay = sub_stay[:10]
+    sub_stay = pickle.load(open('final_substays.pickle','r'))
+    sub_stay = sub_stay[:30]
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
@@ -71,7 +73,7 @@ def prep_highf_mgp(train):
     glascow_verbal = {}
     breakflag = False
 
-    for sub,stay_no in sub_stay:
+    for sub,stay_no,date,index in sub_stay:
         print("Preparing subject %s"%str(sub))
         Y_i = []
         ind_kf_i = []
@@ -81,7 +83,7 @@ def prep_highf_mgp(train):
         intime = pd.to_datetime(stays['INTIME'])
         outtime = pd.to_datetime(stays['OUTTIME'])
         starttime = intime.dt.round('1h')
-        label = stays['MORTALITY_INHOSPITAL'][0]
+        label = stays['MORTALITY_INHOSPITAL'][stay_no]
         try:
             timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
         except:
@@ -99,11 +101,16 @@ def prep_highf_mgp(train):
         #timeline = timeline.fillna(0)
         if timeline.empty:
             continue
-        try:
-            wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav')
-        except:
-            #print "wave not"+str(sub)
-            continue
+        #try:
+        #    wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav')
+        #except:
+        #    print "wave not"+str(sub)
+        #    continue
+        substr = "%06d"%(sub)
+        subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
+        wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
+        #print wavepath+subpathstr
+        signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
         try:
             baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
         except:
@@ -120,11 +127,17 @@ def prep_highf_mgp(train):
         row_map = {n:i for i,n in enumerate(t_i.index)}
         #for every 10 minutes
         gran = 125*60*10
-        wavem = wave.rolling(gran).mean()
-        wavem = wavem.iloc[::gran]
-        #print wavem.head()
-        wavestd = wave.rolling(gran).std()
-        wavestd = wavestd.iloc[::gran]
+        starttime = intime[stay_no]
+        endtime = starttime+datetime.timedelta(hours=24)
+        base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
+        start_row = int(ceil((base_time-starttime).total_seconds())//600)
+        signal = np.pad(signal,((0,(int(ceil(len(signal)/gran)*gran))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
+        end_row = start_row+(signal.shape[0]/gran)
+        last_row = 24*6
+        if last_row<end_row:
+            end_row = last_row
+            signal = signal[:(last_row-start_row)*gran]
+        waveform = np.column_stack((np.mean(signal.reshape(-1,gran), axis=1), np.std(signal.reshape(-1,gran), axis=1)))
         #this becomes param value for ind_kf??
         column_map = {n:i for i,n in enumerate(list(timeline.columns))}
         #create and add discrete numeric values for glascow records
@@ -158,15 +171,14 @@ def prep_highf_mgp(train):
                     Y_i.append(timeline.iloc[t][i])
                     ind_kf_i.append(dropped_col_map[i]-1)
                     ind_kt_i.append(t_i_map[t])
-        for t in range(len(wave_t)):
-            index = int(t/1.667)
-            vm = wavem.iloc[index]
-            vs = wavestd.iloc[index]
+        for index in range(start_row,end_row):
+            vm = waveform[index-start_row][0]
+            vs = waveform[index-start_row][1]
             if not isnan(vm):
-                Y_i.append(vm[0])
+                Y_i.append(vm)
                 ind_kf_i.append(m_i)
                 ind_kt_i.append(wave_t_map[index])
-                Y_i.append(vs[0])
+                Y_i.append(vs)
                 ind_kf_i.append(s_i)
                 ind_kt_i.append(wave_t_map[index])
         '''
@@ -300,7 +312,7 @@ def prep_baseline_mgp(train):
     #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
     #sub_stay = sub_stay[:10]
     sub_stay = pickle.load(open('final_substays.pickle','r'))
-    sub_stay = sub_stay[:20]
+    sub_stay = sub_stay[:30]
     #subject_ids = subject_ids[:700]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
