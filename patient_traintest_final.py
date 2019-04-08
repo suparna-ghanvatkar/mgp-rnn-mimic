@@ -24,7 +24,7 @@ def prep_mimic(train):
     sub_stays_included = []
     '''
     sub_stay = pickle.load(open('final_substays.pickle','r'))
-    #sub_stay = sub_stay[:10]
+    sub_stay = sub_stay[:500]
     #print sub_stay
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
@@ -49,6 +49,11 @@ def prep_mimic(train):
     Ethnicity = {}
     eth_count = 0
     Gender = {'M':0, 'F':1}
+    #for generating the discrete numeric lables for glascow columns
+    glascow_eye_open = {}
+    glascow_motor = {}
+    glascow_total = {}
+    glascow_verbal = {}
 
     breakflag = False
     stime = time()
@@ -63,7 +68,7 @@ def prep_mimic(train):
         intime = pd.to_datetime(stays['INTIME'])
         outtime = pd.to_datetime(stays['OUTTIME'])
         starttime = intime.dt.round('1h')
-        label = stays['MORTALITY_INHOSPITAL'][0]
+        label = stays['MORTALITY_INHOSPITAL'][stay_no]
         #for stay_no in range(stays.shape[0]):
         try:
             timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
@@ -84,6 +89,48 @@ def prep_mimic(train):
             continue
         T_i = timeline.Hours
         column_map = {n:i for i,n in enumerate(list(timeline.columns))}
+        #the drop and remove neg Hours value screws up the indices. So create a map for the final index numbers in the data frame and the actually 't' index we want to index. useful to glascow vars
+        row_map = {n:i for i,n in enumerate(T_i.index)}
+        #create and add discrete numeric values for glascow records
+        col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
+        for col,dlist in col_names:
+            tseries = timeline[col]
+            tseries = tseries.dropna()
+            for ind, value in tseries.iteritems():
+                try:
+                    value = dlist[value]
+                except:
+                    dlist[value] = len(dlist)
+                    value = dlist[value]
+                Y_i.append(value)
+                ind_kf_i.append(column_map[col]-1)
+                ind_kt_i.append(row_map[ind])
+        #drop the glascow and hours column and create a mask of values present
+        #print timeline.shape
+        col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
+        timeline = timeline.drop(col_del,axis=1)
+        #print timeline.shape
+        mask = timeline.notnull()
+        dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
+        #log transform, impute and standardscaler
+        len_columns = len(timeline.columns)
+        #timeline = timeline.apply(np.log)
+        #print timeline.shape
+        #imp = Imputer(strategy="mean",axis=0)
+        #timeline = scale(imp.fit_transform(timeline))
+        #print timeline.shape, len_columns, T_i.shape
+        #timeline = scaler.transform(imp.fit_transform(timeline))
+        #add values to Y,ind_kf and ind_kt acc to the mask
+        for t in range(T_i.shape[0]):
+            presence = mask.iloc[t]
+            #print presence
+            for i in range(len_columns):
+                value = timeline.iloc[t][i]
+                if presence[i]==True and type(value) is not str:
+                    Y_i.append(value)
+                    ind_kf_i.append(dropped_col_map[i]-1)
+                    ind_kt_i.append(t)
+        '''
         len_columns = len(timeline.columns)
         for t in range(T_i.shape[0]):
             values = timeline.iloc[t]
@@ -105,18 +152,20 @@ def prep_mimic(train):
             #print ind_kf_i
             #print ind_kt_i
         #print timeline.head()
+        '''
         #if len(Y_i)>200:
             #print "too many"+str(sub)
             #continue
-        try:
+        #try:
             #wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav',nrows=len(grid_times)*60*60*125)
-            substr = "%06d"%(sub)
-            subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
-            wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
-            signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
-        except:
-            print("wave not for %s,%s,%s,%s"%(sub,stay_no,date,index))
-            continue
+        substr = "%06d"%(sub)
+        subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
+        wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
+        #print wavepath+subpathstr
+        signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
+        #except:
+        #    print("wave not for %s,%s,%s,%s"%(sub,stay_no,date,index))
+        #    continue
         try:
             baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
         except:
@@ -134,7 +183,8 @@ def prep_mimic(train):
             end_row = last_row
             signal = signal[:(last_row-start_row)*125]
         waveform = np.column_stack((np.mean(signal.reshape(-1,125), axis=1), np.std(signal.reshape(-1,125), axis=1)))
-        print waveform[-135:-125]
+        waveform = np.nan_to_num(waveform)
+        #print waveform[-135:-125]
         #waveform = wave.rolling(125).agg({'M':'mean','S':'std'})
         #waveform = waveform[::125]
         #waveform = waveform.fillna(0)
@@ -144,7 +194,7 @@ def prep_mimic(train):
         #print waveform.shape
         waveform = np.pad(waveform,((start_row,(len(grid_times)*60*60)-end_row),(0,0)),'constant')
         print("done padding")
-        print waveform.shape
+        #print waveform.shape
         #if waveform.shape[1]!=2:
 
         '''
@@ -182,8 +232,9 @@ def prep_mimic(train):
         rnn_grid_times.append(grid_times)
         waveforms.append(waveform)
         end_times.append(len(rnn_grid_times[-1])-1)
-        num_obs_times.append(timeline.count()[0])
-        #num_obs_values.append(np.sum(timeline.count()[1:]))
+        num_obs_times.append(len(T_i))
+        #num_obs_values.append(np.sum(timeline.count()[1:]))i
+        #print Y_i
         num_obs_values.append(len(Y_i))
         num_rnn_grid_times.append(len(rnn_grid_times[-1]))
         #rnn_grid_times.append(list(np.arange(num_rnn_grid_times[-1])))
@@ -222,20 +273,23 @@ def prep_mimic(train):
     print np.array(num_obs_times).mean()
     print np.array(num_obs_values).mean()
     print np.array(num_rnn_grid_times).mean()
-    print "storing the data"
-    #print rnn_grid_times
-    #print labels
-    #print T
-    #print "printing Y"
     #print Y
-    #print "kf"
-    #print ind_kf
-    #print "kt"
-    #print ind_kt
-    #print "meds"
-    #print meds_on_grid
-    #print "baselines"
-    #print baseline_covs
+    #print "storing the data"
+    '''
+    print rnn_grid_times
+    print labels
+    print T
+    print "printing Y"
+    print Y
+    print "kf"
+    print ind_kf
+    print "kt"
+    print ind_kt
+    print "meds"
+    print meds_on_grid
+    print "baselines"
+    print baseline_covs
+    '''
     #pickle.dump(sub_stays_included, open('sub_stays_included.pickle','w'))
     '''
     pickle.dump(num_obs_times, open('num_obs_times_hierarchical_'+train+'_mimic.pickle','w'))

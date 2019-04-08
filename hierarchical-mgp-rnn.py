@@ -26,6 +26,7 @@ from hierarchical_simulations import *
 from hierarchical_patient_events import *
 #from tf.keras.layers import *
 #from patient_events import *
+from patient_traintest_final import *
 from tensorflow.python import debug as tf_debug
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
@@ -93,8 +94,11 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
 
     #now get draws!
     y_ = tf.reshape(Yi,[-1,1])
-    #Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
     Ly = tf.cholesky(Ky)
+    #Mu = tf.matmul(K_fy,CG(Ky,y_)) #May be faster with CG for large problems
+    #printop = tf.Print(y_,[y_,Ly],"The y is :",-1,1000)
+    #with tf.control_dependencies([printop]):
+    xi = tf.random_normal((nx*M,n_mc_smps))
     Mu = tf.matmul(K_fy,tf.cholesky_solve(Ly,y_))
 
     #TODO: it's worth testing to see at what point computation speedup of Lanczos algorithm is useful & needed.
@@ -115,7 +119,6 @@ def draw_GP(Yi,Ti,Xi,ind_kfi,ind_kti):
     draw = tf.cond(tf.less(nx*M,BLOCK_LANC_THRESH),small_draw,large_draw)
     """
 
-    xi = tf.random_normal((nx*M,n_mc_smps))
     Sigma = K_ff - tf.matmul(K_fy,tf.cholesky_solve(Ly,tf.transpose(K_fy))) + 1e-6*tf.eye(tf.shape(K_ff)[0])
     draw = Mu + tf.matmul(tf.cholesky(Sigma),xi)
     draw_reshape = tf.transpose(tf.reshape(tf.transpose(draw),[n_mc_smps,M,nx]),perm=[0,2,1])
@@ -139,7 +142,7 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
     def body(i,Z):
         Yi = tf.reshape(tf.slice(Y,[i,0],[1,num_obs_values[i]]),[-1])
         Ti = tf.reshape(tf.slice(T,[i,0],[1,num_obs_times[i]]),[-1])
-        #printop = tf.Print(i, [i,N,tf.shape(waveform_outputs)], "current i is:",-1,10)
+        #printop = tf.Print(i, [i,Yi,tf.shape(waveform_outputs)], "current i is:",-1,1000)
         #with tf.control_dependencies([printop]):
         ind_kfi = tf.reshape(tf.slice(ind_kf,[i,0],[1,num_obs_values[i]]),[-1])
         ind_kti = tf.reshape(tf.slice(ind_kt,[i,0],[1,num_obs_values[i]]),[-1])
@@ -261,6 +264,13 @@ if __name__ == "__main__":
         M = 25
         n_meds = 5
         n_covs = 9
+    elif args.sim=="newdata":
+        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_mimic('train')
+        num_enc = len(num_obs_times)
+        M = 25
+        n_meds = 5
+        n_covs = 9
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_baseline_mgp()
@@ -268,7 +278,7 @@ if __name__ == "__main__":
         M = 25
         n_meds = 5
         n_covs = 9
-    '''
+    #'''
     N_tot = len(labels) #total encounters
 
     train_test_perm = rs.permutation(N_tot)
@@ -300,7 +310,7 @@ if __name__ == "__main__":
     rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
     H_tr = [high_freq[i] for i in tr_ind]; H_te = [high_freq[i] for i in te_ind]
-    '''
+    #'''
     Ntr = len(covs_tr)
     Nte = len(covs_te)
     print("data fully setup!")
@@ -449,13 +459,15 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-
+            loss_,_ = sess.run([loss,train_op],feed_dict)
+            '''
             try:
                 loss_,_ = sess.run([loss,train_op],feed_dict)
             except:
+                print "problem in "+str(batch)
                 batch+=1; total_batches+=1
                 continue
-
+            '''
             print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
                   ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
@@ -501,7 +513,7 @@ if __name__ == "__main__":
                 te_prc = average_precision_score(labels_te, pred_probs)
                 #auc = auc/no_iters
                 #prc = prc/no_iters
-                pickle.dump(pred_probs,open('hierarchical_pred_probs.pickle','w'))
+                #pickle.dump(pred_probs,open('hierarchical_pred_probs.pickle','w'))
                 print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
                       "{:.2f}".format(time()-test_t)+\
                       ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \

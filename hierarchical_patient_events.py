@@ -37,7 +37,7 @@ def prep_baseline_mgp(train):
     sub_stays_included = []
     '''
     sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
-    #sub_stay = sub_stay[:10]
+    sub_stay = sub_stay[:10]
     #print sub_stay
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
@@ -76,7 +76,7 @@ def prep_baseline_mgp(train):
         intime = pd.to_datetime(stays['INTIME'])
         outtime = pd.to_datetime(stays['OUTTIME'])
         starttime = intime.dt.round('1h')
-        label = stays['MORTALITY_INHOSPITAL'][0]
+        label = stays['MORTALITY_INHOSPITAL'][stay_no]
         #for stay_no in range(stays.shape[0]):
         try:
             timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
@@ -179,7 +179,7 @@ def prep_baseline_mgp(train):
         rnn_grid_times.append(grid_times)
         waveforms.append(waveform)
         end_times.append(len(rnn_grid_times[-1])-1)
-        num_obs_times.append(timeline.count()[0])
+        num_obs_times.append(len(T_i))
         #num_obs_values.append(np.sum(timeline.count()[1:]))
         num_obs_values.append(len(Y_i))
         num_rnn_grid_times.append(len(rnn_grid_times[-1]))

@@ -40,6 +40,7 @@ def prep_highf_mgp(train):
         sub_stay[sub].append(stay)
     '''
     sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
+    sub_stay = sub_stay[:10]
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
@@ -108,14 +109,15 @@ def prep_highf_mgp(train):
         except:
             #print "baseline"+str(sub)
             continue
-        t_i = list(timeline.Hours)
+        t_i = timeline.Hours
         #add the time from waveforms as well as that will have to be sorted into the T and appended and removed for duplicates from this T_i
-        wave_t = [(i+1)*0.1 for i in range((len(grid_times)-1)*6)]
+        wave_t = [i*1.667 for i in range(len(grid_times)*6)]
         T_i = sorted(list(set(t_i).union(set(wave_t))))
         #creating map for the timeline hours into the final time indices
         T_i_map = {n:i for i,n in enumerate(T_i)}
         t_i_map = {i:T_i_map[n] for i,n in enumerate(t_i)}
         wave_t_map = {i:T_i_map[n] for i,n in enumerate(wave_t)}
+        row_map = {n:i for i,n in enumerate(t_i.index)}
         #for every 10 minutes
         gran = 125*60*10
         wavem = wave.rolling(gran).mean()
@@ -138,7 +140,7 @@ def prep_highf_mgp(train):
                     value = dlist[value]
                 Y_i.append(value)
                 ind_kf_i.append(column_map[col]-1)
-                ind_kt_i.append(t_i_map[index])
+                ind_kt_i.append(t_i_map[row_map[index]])
         #drop the glascow and hours column and create a mask of values present
         col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
         timeline = timeline.drop(col_del,axis=1)
@@ -146,6 +148,8 @@ def prep_highf_mgp(train):
         dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
         #add values to Y,ind_kf and ind_kt acc to the mask
         len_columns = len(timeline.columns)
+        m_i = len_columns
+        s_i = m_i+1
         for t in range(len(t_i)):
             presence = mask.iloc[t]
             #print presence
@@ -154,11 +158,19 @@ def prep_highf_mgp(train):
                     Y_i.append(timeline.iloc[t][i])
                     ind_kf_i.append(dropped_col_map[i]-1)
                     ind_kt_i.append(t_i_map[t])
-
+        for t in range(len(wave_t)):
+            index = int(t/1.667)
+            vm = wavem.iloc[index]
+            vs = wavestd.iloc[index]
+            if not isnan(vm):
+                Y_i.append(vm[0])
+                ind_kf_i.append(m_i)
+                ind_kt_i.append(wave_t_map[index])
+                Y_i.append(vs[0])
+                ind_kf_i.append(s_i)
+                ind_kt_i.append(wave_t_map[index])
         '''
         len_columns = len(timeline.columns)
-        m_i = len_columns
-        s_i = m_i+1
         t_index = 0
         timeline_index = 0
         for t in T_i:
@@ -195,7 +207,7 @@ def prep_highf_mgp(train):
         rnn_grid_times.append(grid_times)
         #waveforms.append(waveform)
         end_times.append(len(rnn_grid_times[-1])-1)
-        num_obs_times.append(timeline.count()[0])
+        num_obs_times.append(len(T_i))
         #num_obs_values.append(np.sum(timeline.count()[1:]))
         num_obs_values.append(len(Y_i))
         num_rnn_grid_times.append(len(rnn_grid_times[-1]))
@@ -226,6 +238,26 @@ def prep_highf_mgp(train):
         if breakflag:
             print("dataset ends at %s"%sub)
             break
+    '''
+    print np.array(num_obs_times).mean()
+    print np.array(num_obs_values).mean()
+    print np.array(num_rnn_grid_times).mean()
+    print rnn_grid_times
+    print labels
+    print T
+    print len(T)
+    print "printing Y"
+    print Y
+    print "kf"
+    print ind_kf
+    print "kt"
+    print ind_kt
+    print "meds"
+    print meds_on_grid
+    print "baselines"
+    print baseline_covs
+    #'''
+    '''
     pickle.dump(num_obs_times, open('num_obs_times_high_'+train+'_mimic.pickle','w'))
     pickle.dump(num_obs_values, open('num_obs_values_high_'+train+'_mimic.pickle','w'))
     pickle.dump(num_rnn_grid_times, open('num_rnn_grid_times_high_'+train+'_mimic.pickle','w'))
@@ -237,6 +269,7 @@ def prep_highf_mgp(train):
     pickle.dump(ind_kt, open('ind_kt_high_'+train+'_mimic.pickle','w'))
     pickle.dump(meds_on_grid, open('meds_on_grid_high_'+train+'_mimic.pickle','w'))
     pickle.dump(baseline_covs, open('baseline_covs_high_'+train+'_mimic.pickle','w'))
+    '''
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
 def retrieve_mimic_dataset(train):
@@ -451,5 +484,5 @@ def prep_baseline_mgp(train):
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
 if __name__=="__main__":
-    prep_baseline_mgp('train')
-    #prep_highf_mgp()
+    #prep_baseline_mgp('train')
+    prep_highf_mgp('train')

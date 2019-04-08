@@ -30,7 +30,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
         Padded 2d np arrays of data, now of dim batchsize x batch_maxlen
     """
     H = Hi
-    print len(H)
+    #print len(H)
     N = np.shape(T)[0] #num in batch
     num_meds = np.shape(meds_on_grid[0])[1]
     num_covs = np.shape(covs)[1]
@@ -51,7 +51,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
     meds_cov_pad = np.zeros((N,grid_maxlen,num_meds+num_covs))
     X_pad = np.zeros((N,grid_maxlen))
 
-    print grid_maxlen
+    #print grid_maxlen
     H_lens = np.array([len(h) for h in H])
     #print("H_lensgths:%s"%H_lens)
     #H_maxlen = np.max(H_lens)
@@ -62,6 +62,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
         #print H[i].shape
         H_pad[i,:H_lens[i],:] = H[i]
         T_pad[i,:T_lens[i]] = T[i]
+        print Y[i]
         Y_pad[i,:Y_lens[i]] = Y[i]
         ind_kf_pad[i,:Y_lens[i]] = ind_kf[i]
         ind_kt_pad[i,:Y_lens[i]] = ind_kt[i]
@@ -73,7 +74,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
     #if H_maxlen!=(grid_maxlen*450000):
     #    print "tafavat"+str(H_maxlen)+" "+str(grid_maxlen)
     H_pad = H_pad.reshape((N,grid_maxlen,3600*2))
-    print H_pad.shape
+    #print H_pad.shape
     return T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad
 
 #####
