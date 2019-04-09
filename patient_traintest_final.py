@@ -13,7 +13,7 @@ from collections import defaultdict
 
 data_path = '/data/suparna/MGP_data/'
 
-def prep_mimic(train):
+def prep_mimic(train,fold):
     '''
     fsub = open('subject_presence','r')
     lines = fsub.read().splitlines()
@@ -23,8 +23,8 @@ def prep_mimic(train):
     subject_ids = [int(x[0]) for x in lines]
     sub_stays_included = []
     '''
-    sub_stay = pickle.load(open('final_substays.pickle','r'))
-    sub_stay = sub_stay[:500]
+    sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    #sub_stay = sub_stay[:50]
     #print sub_stay
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []

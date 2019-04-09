@@ -1,10 +1,10 @@
 {
-    "name":"mgp-highf-trial",
+    "name":"hierarchical-trial",
     "algorithm":"BayesianOptimization",
     "trialNumber":3,
     "concurrency":1,
     "path":"~/mgp-rnn-mimic/",
-    "command":"python ./hierarchical-mgp-rnn.py newdata",
+    "command":"python ./hierarchical-mgp-rnn.py data",
     "search_space": {
         "goal":"MAXIMIZE",
         "randomInitTrials":1,

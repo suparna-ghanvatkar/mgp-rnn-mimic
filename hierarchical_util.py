@@ -41,7 +41,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
 
     Y_lens = np.array([len(y) for y in Y])
     Y_maxlen = np.max(Y_lens)
-    print("Y maxlen:%s"%Y_maxlen)
+    #print("Y maxlen:%s"%Y_maxlen)
     Y_pad = np.zeros((N,Y_maxlen))
     ind_kf_pad = np.zeros((N,Y_maxlen))
     ind_kt_pad = np.zeros((N,Y_maxlen))
@@ -62,7 +62,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi):
         #print H[i].shape
         H_pad[i,:H_lens[i],:] = H[i]
         T_pad[i,:T_lens[i]] = T[i]
-        print Y[i]
+        #print Y[i]
         Y_pad[i,:Y_lens[i]] = Y[i]
         ind_kf_pad[i,:Y_lens[i]] = ind_kf[i]
         ind_kt_pad[i,:Y_lens[i]] = ind_kt[i]

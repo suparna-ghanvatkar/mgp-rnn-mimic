@@ -23,7 +23,6 @@ from hierarchical_util import *
 #from hierarchical_util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
 #from simulations import *
 from hierarchical_simulations import *
-from hierarchical_patient_events import *
 #from tf.keras.layers import *
 #from patient_events import *
 from patient_traintest_final import *
@@ -240,7 +239,7 @@ flags = tf.app.flags
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
 flags.DEFINE_float("epochs",55.0,"")
-flags.DEFINE_float("batch",5.0,"")
+flags.DEFINE_float("batch",3.0,"")
 flags.DEFINE_float("n_layers",3.0,"")
 FLAGS=flags.FLAGS
 
@@ -251,6 +250,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     #parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
     parser.add_argument('sim', type=str, help='prevsim/sim/data/prevdata')
+    parser.add_argument('fold',type=int,help='fold number')
     parser.add_argument('-lr',type=float, help='lr value')
     parser.add_argument("-l2_penalty",type=float)
     parser.add_argument("-epochs",type=int)
@@ -270,17 +270,10 @@ if __name__ == "__main__":
         values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.sim=="data":
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_baseline_mgp('train')
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_mimic('train',args.fold)
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_baseline_mgp('val')
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('val',args.fold)
         num_enc = len(num_obs_times_tr)
-        M = 25
-        n_meds = 5
-        n_covs = 9
-    elif args.sim=="newdata":
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_mimic('train')
-        num_enc = len(num_obs_times)
         M = 25
         n_meds = 5
         n_covs = 9
@@ -291,7 +284,7 @@ if __name__ == "__main__":
         M = 25
         n_meds = 5
         n_covs = 9
-    #'''
+    '''
     N_tot = len(labels) #total encounters
     if args.lr:
         FLAGS.lr = args.lr
@@ -335,6 +328,7 @@ if __name__ == "__main__":
     #'''
     Ntr = len(covs_tr)
     Nte = len(covs_te)
+    print("Train/test split : %s-%s"%(Ntr,Nte))
     print("data fully setup!")
     print("test labels are:%s"%labels_te)
     sys.stdout.flush()
@@ -448,7 +442,7 @@ if __name__ == "__main__":
     test_writer = tf.summary.FileWriter('hierarchical_tensorboard/test')
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
-    #print("Graph setup!")
+    print("Graph setup!")
 
     #setup minibatch indices
     #print Ntr
@@ -470,7 +464,7 @@ if __name__ == "__main__":
     for i in range(training_iters):
         #train
         epoch_start = time()
-        #print("Starting epoch "+"{:d}".format(i))
+        print("Starting epoch "+"{:d}".format(i))
         perm = rs.permutation(Ntr)
         batch = 0
         for s,e in zip(starts,ends):
@@ -485,7 +479,8 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            loss_,_ = sess.run([loss,train_op],feed_dict)
+            summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+            train_writer.add_summary(summary,i)
             '''
             try:
                 loss_,_ = sess.run([loss,train_op],feed_dict)
@@ -494,8 +489,8 @@ if __name__ == "__main__":
                 batch+=1; total_batches+=1
                 continue
             '''
-            #print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-            #      ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                  ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
             batch += 1; total_batches += 1
 
@@ -527,7 +522,8 @@ if __name__ == "__main__":
                     feed_dict={waveform:H_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
                        med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
                        num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
-                    te_probs,te_acc,te_loss = sess.run([probs,accuracy,loss],feed_dict)
+                    summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
+                    test_writer.add_summary(summary,i)
                     #print "Te probs:"+str(te_probs)
                     pred_probs.extend(te_probs)
                     acc += te_acc
@@ -540,17 +536,17 @@ if __name__ == "__main__":
                 #auc = auc/no_iters
                 #prc = prc/no_iters
                 #pickle.dump(pred_probs,open('hierarchical_pred_probs.pickle','w'))
-                #print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                #      "{:.2f}".format(time()-test_t)+\
-                #      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                #      " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
-                #      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                      "{:.2f}".format(time()-test_t)+\
+                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                      " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
+                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
                 sys.stdout.flush()
 
                 #create a folder and put model checkpoints there
                 saver.save(sess, "HIERARCHICAL_MGP/", global_step=total_batches)
-        #print("Finishing epoch "+"{:d}".format(i)+", took "+\
-        #      "{:.3f}".format(time()-epoch_start))
+        print("Finishing epoch "+"{:d}".format(i)+", took "+\
+              "{:.3f}".format(time()-epoch_start))
 
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs

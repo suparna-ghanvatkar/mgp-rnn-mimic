@@ -224,25 +224,6 @@ def get_probs_and_accuracy(preds,O):
 def vectorize(l,ind):
     return [l[i] for i in ind]
 
-bounds = [{'name': 'lr', 'type': 'continuous',  'domain': (0.0, 0.1)},
-        {'name': 'l2_penalty', 'type': 'continuous',  'domain': (0.0, 0.01)},
-        {'name': 'epochs', 'type': 'discrete',  'domain': (30,40,45,50,55)},
-        {'name': 'batch', 'type': 'discrete',  'domain': (3,5,10,15,20)},
-        {'name': 'n_layers', 'type': 'discrete',  'domain': (2,3,4)}
-        ]
-
-def f(x):
-    print(x)
-    evaluation = model(
-        lr = float(x[:,0]),
-        l2_penalty = float(x[:,1]),
-        epochs = int(x[:,2]),
-        batch = int(x[:,3]),
-        n_layers = int(x[:,4]))
-    print("LOSS:\t{0} \t AUC:\t{1}".format(evaluation[0], evaluation[1]))
-    #print(evaluation)
-    return evaluation[0]
-
 flags = tf.app.flags
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
@@ -258,6 +239,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
     parser.add_argument('sim', type=str, help='prev/sim/data/prevdata')
+    parser.add_argument('fold',type=int,help='fold number')
     parser.add_argument('-lr',type=float, help='lr value')
     parser.add_argument("-l2_penalty",type=float)
     parser.add_argument("-epochs",type=int)
@@ -291,13 +273,13 @@ if __name__ == "__main__":
         values,ind_lvs,ind_times,meds_on_grid,covs) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
         #elif args.high=="high" and args.sim=="prev":
     elif args.high=="low" and args.sim=="data":
-        #(num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        #values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train')
-        #(num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        #values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val')
-        #num_enc = len(num_obs_times_tr)
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_baseline_mgp('train')
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train',args.fold)
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val',args.fold)
+        num_enc = len(num_obs_times_tr)
+        #(num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        #values,ind_lvs,ind_times,meds_on_grid,covs) = prep_baseline_mgp('train')
         M = 25
         n_meds = 5
         n_covs = 9
@@ -311,13 +293,13 @@ if __name__ == "__main__":
         n_meds = 5
         n_covs = 9
     elif args.high=="high" and args.sim=="data":
-        #(num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        #values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_highf_mgp('train')
-        #(num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        #values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_highf_mgp('val')
-        #num_enc = len(num_obs_times_tr)
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs) = prep_highf_mgp('train')
+        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_highf_mgp('train',args.fold)
+        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_highf_mgp('val',args.fold)
+        num_enc = len(num_obs_times_tr)
+        #(num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+        #values,ind_lvs,ind_times,meds_on_grid,covs) = prep_highf_mgp('train')
         M = 27
         n_meds = 5
         n_covs = 9
@@ -333,7 +315,6 @@ if __name__ == "__main__":
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
-    N_tot = len(labels) #total encounters
     if args.lr:
         FLAGS.lr = args.lr
     if args.l2_penalty:
@@ -344,7 +325,8 @@ if __name__ == "__main__":
         FLAGS.batch = args.batch
     if args.n_layers:
         FLAGS.n_layers = args.n_layers
-    #'''
+    '''
+    N_tot = len(labels) #total encounters
     train_test_perm = rs.permutation(N_tot)
     val_frac = 0.2 #fraction of full data to set aside for testing
     te_ind = train_test_perm[:int(val_frac*N_tot)]
@@ -474,7 +456,7 @@ if __name__ == "__main__":
 
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
-    #print("Graph setup!")
+    print("Graph setup!")
 
     #setup minibatch indices
     #print Ntr
@@ -496,7 +478,7 @@ if __name__ == "__main__":
     for i in range(training_iters):
         #train
         epoch_start = time()
-        #print("Starting epoch "+"{:d}".format(i))
+        print("Starting epoch "+"{:d}".format(i))
         perm = rs.permutation(Ntr)
         batch = 0
         for s,e in zip(starts,ends):
@@ -522,8 +504,8 @@ if __name__ == "__main__":
                 continue
             #'''
             #loss_,_ = sess.run([loss,train_op],feed_dict)
-            #print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-            #    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
             batch += 1; total_batches += 1
 
@@ -540,11 +522,11 @@ if __name__ == "__main__":
                 test_writer.add_summary(summary, i)
                 te_auc = roc_auc_score(labels_te, te_probs)
                 te_prc = average_precision_score(labels_te, te_probs)
-                #print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                #      "{:.2f}".format(time()-test_t)+\
-                #      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                #      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
-                #      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                      "{:.2f}".format(time()-test_t)+\
+                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
+                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
                 sys.stdout.flush()
                 evaluation = [te_loss,te_auc,te_prc,te_acc]
                 #create a folder and put model checkpoints there
@@ -553,8 +535,8 @@ if __name__ == "__main__":
                     saver.save(sess, "MGP-RNN/", global_step=total_batches)
                 else:
                     saver.save(sess, "MGP-RNN-HIGHF/", global_step=total_batches)
-        #print("Finishing epoch "+"{:d}".format(i)+", took "+\
-        #      "{:.3f}".format(time()-epoch_start))
+        print("Finishing epoch "+"{:d}".format(i)+", took "+\
+              "{:.3f}".format(time()-epoch_start))
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs
     print te_auc

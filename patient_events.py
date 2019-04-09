@@ -4,6 +4,7 @@ from math import ceil, isnan
 import pickle
 from collections import defaultdict
 import wfdb
+from time import time
 import datetime
 from sklearn.preprocessing import StandardScaler, Imputer, scale
 
@@ -28,7 +29,7 @@ def retrieve_high_mimic_dataset(train):
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
-def prep_highf_mgp(train):
+def prep_highf_mgp(train,fold):
     '''
     fsub = open('subject_presence','r')
     lines = fsub.read().splitlines()
@@ -43,8 +44,8 @@ def prep_highf_mgp(train):
     '''
     #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
     #sub_stay = sub_stay[:10]
-    sub_stay = pickle.load(open('final_substays.pickle','r'))
-    sub_stay = sub_stay[:30]
+    sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    #sub_stay = sub_stay[:30]
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
@@ -76,6 +77,7 @@ def prep_highf_mgp(train):
     breakflag = False
 
     for sub,stay_no,date,index in sub_stay:
+        start_time = time()
         print("Preparing subject %s"%str(sub))
         Y_i = []
         ind_kf_i = []
@@ -93,10 +95,10 @@ def prep_highf_mgp(train):
             continue
         grid_times = range(24)
         #grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
-        if len(grid_times)<24:
+        #if len(grid_times)<24:
             #cancelled_subs.append(sub)
             #print "no grid"+str(sub)
-            continue
+            #continue
         timeline = timeline[timeline.Hours>=0]
         timeline = timeline[timeline.Hours<=24]
         timeline = timeline.drop_duplicates()
@@ -119,7 +121,7 @@ def prep_highf_mgp(train):
             #print "baseline"+str(sub)
             continue
         t_i = timeline.Hours
-        print signal.shape
+        #print signal.shape
         #add the time from waveforms as well as that will have to be sorted into the T and appended and removed for duplicates from this T_i
         wave_t = [i*1.667 for i in range(len(grid_times)*6)]
         T_i = sorted(list(set(t_i).union(set(wave_t))))
@@ -133,9 +135,13 @@ def prep_highf_mgp(train):
         starttime = intime[stay_no]
         endtime = starttime+datetime.timedelta(hours=24)
         base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
-        start_row = int(ceil((base_time-starttime).total_seconds())//600)
+        if base_time>starttime:
+            start_row = int(ceil((base_time-starttime).total_seconds())//600)
+        else:
+            start_row = 0
+        #print start_row
         signal = np.pad(signal,((0,(int(ceil(len(signal)/(125.0*600))*gran))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
-        print signal.shape
+        #print signal.shape
         end_row = start_row+(signal.shape[0]/gran)
         last_row = 24*6
         if last_row<end_row:
@@ -252,6 +258,8 @@ def prep_highf_mgp(train):
         #if len(labels)>=150:
         #    breakflag = True
         #    break
+        end_time = time()
+        print("took time:%s"%(end_time-start_time))
         if breakflag:
             print("dataset ends at %s"%sub)
             break
@@ -304,7 +312,7 @@ def retrieve_mimic_dataset(train):
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
-def prep_baseline_mgp(train):
+def prep_baseline_mgp(train,fold):
     '''
     fsub = open('subject_presence','r')
     lines = fsub.read().splitlines()
@@ -316,8 +324,8 @@ def prep_baseline_mgp(train):
     '''
     #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
     #sub_stay = sub_stay[:10]
-    sub_stay = pickle.load(open('final_substays.pickle','r'))
-    sub_stay = sub_stay[:30]
+    sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    #sub_stay = sub_stay[:30]
     #subject_ids = subject_ids[:700]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
@@ -349,6 +357,7 @@ def prep_baseline_mgp(train):
     breakflag = False
 
     for sub,stay_no,date,index in sub_stay:
+        start_time = time()
         print("Preparing subject %s"%str(sub))
         Y_i = []
         ind_kf_i = []
@@ -364,10 +373,10 @@ def prep_baseline_mgp(train):
             timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
         except:
             continue
-        grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
-        if len(grid_times)<24:
+        #grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
+        #if len(grid_times)<24:
             #cancelled_subs.append(sub)
-            continue
+            #continue
         timeline = timeline[timeline.Hours>=0]
         timeline = timeline[timeline.Hours<=24]
         timeline = timeline.drop_duplicates()
@@ -378,11 +387,11 @@ def prep_baseline_mgp(train):
             baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
         except:
             continue
-        try:
-            wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav')
-        except:
-            #print "wave not"+str(sub)
-            continue
+        #try:
+        #    wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav')
+        #except:
+        #    #print "wave not"+str(sub)
+        #    continue
         grid_times = range(24)
         T_i = timeline.Hours
         column_map = {n:i for i,n in enumerate(list(timeline.columns))}
@@ -462,7 +471,8 @@ def prep_baseline_mgp(train):
         ind_kt.append(ind_kt_i)
         T.append(T_i.tolist())
         labels.append(label)
-        #if len(labels)>=150:
+        end_time = time()
+        print("took time %s"%(end_time-start_time))#if len(labels)>=150:
         #    breakflag = True
         #    break
         if breakflag:
