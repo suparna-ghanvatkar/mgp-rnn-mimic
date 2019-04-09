@@ -7,10 +7,15 @@ import wfdb
 from time import time
 import datetime
 from sklearn.preprocessing import StandardScaler, Imputer, scale
+import concurrent.futures
 
 '''
 The baselines are: Ethnicity, Gender, Age, Height, Weight
 '''
+glascow_eye_open = {}
+glascow_motor = {}
+glascow_total = {}
+glascow_verbal = {}
 
 data_path = '/data/suparna/MGP_data/'
 
@@ -29,6 +34,123 @@ def retrieve_high_mimic_dataset(train):
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
+def get_encounter_high(values):
+    sub,stay_no,date,index = values
+    Y_i = []
+    ind_kf_i = []
+    ind_kt_i = []
+    stays = pd.read_csv(data_path+'root/'+str(sub)+'/stays.csv', parse_dates=True)
+    #timeline = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/episode1_timeseries.csv')
+    intime = pd.to_datetime(stays['INTIME'])
+    outtime = pd.to_datetime(stays['OUTTIME'])
+    starttime = intime.dt.round('1h')
+    label = stays['MORTALITY_INHOSPITAL'][stay_no]
+    timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
+    grid_times = range(24)
+    #grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
+    #if len(grid_times)<24:
+        #cancelled_subs.append(sub)
+        #print "no grid"+str(sub)
+        #continue
+    timeline = timeline[timeline.Hours>=0]
+    timeline = timeline[timeline.Hours<=24]
+    timeline = timeline.drop_duplicates()
+    #timeline = timeline.fillna(0)
+    #try:
+    #    wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav')
+    #except:
+    #    print "wave not"+str(sub)
+    #    continue
+    substr = "%06d"%(sub)
+    subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
+    wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
+    #print wavepath+subpathstr
+    signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
+    baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
+    t_i = timeline.Hours
+    #print signal.shape
+    #add the time from waveforms as well as that will have to be sorted into the T and appended and removed for duplicates from this T_i
+    wave_t = [i*1.667 for i in range(len(grid_times)*6)]
+    T_i = sorted(list(set(t_i).union(set(wave_t))))
+    #creating map for the timeline hours into the final time indices
+    T_i_map = {n:i for i,n in enumerate(T_i)}
+    t_i_map = {i:T_i_map[n] for i,n in enumerate(t_i)}
+    wave_t_map = {i:T_i_map[n] for i,n in enumerate(wave_t)}
+    row_map = {n:i for i,n in enumerate(t_i.index)}
+    #for every 10 minutes
+    gran = 125*60*10
+    starttime = intime[stay_no]
+    endtime = starttime+datetime.timedelta(hours=24)
+    base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
+    if base_time>starttime:
+        start_row = int(ceil((base_time-starttime).total_seconds())//600)
+    else:
+        start_row = 0
+    #print start_row
+    signal = np.pad(signal,((0,(int(ceil(len(signal)/(125.0*600))*gran))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
+    #print signal.shape
+    end_row = start_row+(signal.shape[0]/gran)
+    last_row = 24*6
+    if last_row<end_row:
+        end_row = last_row
+        signal = signal[:(last_row-start_row)*gran]
+    waveform = np.column_stack((np.mean(signal.reshape(-1,gran), axis=1), np.std(signal.reshape(-1,gran), axis=1)))
+    #this becomes param value for ind_kf??
+    column_map = {n:i for i,n in enumerate(list(timeline.columns))}
+    #create and add discrete numeric values for glascow records
+    col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
+    for col,dlist in col_names:
+        tseries = timeline[col]
+        tseries = tseries.dropna()
+        for index, value in tseries.iteritems():
+            try:
+                value = dlist[value]
+            except:
+                dlist[value] = len(dlist)
+                value = dlist[value]
+            Y_i.append(value)
+            ind_kf_i.append(column_map[col]-1)
+            ind_kt_i.append(t_i_map[row_map[index]])
+    #drop the glascow and hours column and create a mask of values present
+    col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
+    timeline = timeline.drop(col_del,axis=1)
+    mask = timeline.notnull()
+    dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
+    #add values to Y,ind_kf and ind_kt acc to the mask
+    len_columns = len(timeline.columns)
+    m_i = len_columns
+    s_i = m_i+1
+    for t in range(len(t_i)):
+        presence = mask.iloc[t]
+        #print presence
+        for i in range(len_columns):
+            value = timeline.iloc[t][i]
+            if presence[i]==True and type(value) is not str:
+                Y_i.append(value)
+                ind_kf_i.append(dropped_col_map[i]-1)
+                ind_kt_i.append(t_i_map[t])
+    for index in range(start_row,end_row):
+        vm = waveform[index-start_row][0]
+        vs = waveform[index-start_row][1]
+        if not isnan(vm):
+            Y_i.append(vm)
+            ind_kf_i.append(m_i)
+            ind_kt_i.append(wave_t_map[index])
+            Y_i.append(vs)
+            ind_kf_i.append(s_i)
+            ind_kt_i.append(wave_t_map[index])
+    baseline = baseline.fillna(0)
+    baseline_i = baseline.iloc[0].to_list()
+    #print baseline_i
+    #raw_input()
+    try:
+        medicines = pd.read_csv(data_path+'medicines/'+str(sub)+'_stay'+str(stay_no)+'.med',nrows=24)
+        #medicines = medicines.fillna(0)
+        meds_on_grid_i = medicines.to_numpy()
+    except:
+        meds_on_grid_i = np.zeros((24,5))
+    return (T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label)
+
 def prep_highf_mgp(train,fold):
     '''
     fsub = open('subject_presence','r')
@@ -45,7 +167,7 @@ def prep_highf_mgp(train,fold):
     #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
     #sub_stay = sub_stay[:10]
     sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
-    #sub_stay = sub_stay[:30]
+    #sub_stay = sub_stay[:5000]
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
     #subject_ids = [20, 107,194, 123, 160, 217, 292, 263, 125, 135, 33]
@@ -76,193 +198,30 @@ def prep_highf_mgp(train,fold):
     glascow_verbal = {}
     breakflag = False
 
-    for sub,stay_no,date,index in sub_stay:
-        start_time = time()
-        print("Preparing subject %s"%str(sub))
-        Y_i = []
-        ind_kf_i = []
-        ind_kt_i = []
-        stays = pd.read_csv(data_path+'root/'+str(sub)+'/stays.csv', parse_dates=True)
-        #timeline = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/episode1_timeseries.csv')
-        intime = pd.to_datetime(stays['INTIME'])
-        outtime = pd.to_datetime(stays['OUTTIME'])
-        starttime = intime.dt.round('1h')
-        label = stays['MORTALITY_INHOSPITAL'][stay_no]
-        try:
-            timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
-        except:
-            #print "no timeline"+str(sub)
-            continue
-        grid_times = range(24)
-        #grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
-        #if len(grid_times)<24:
-            #cancelled_subs.append(sub)
-            #print "no grid"+str(sub)
-            #continue
-        timeline = timeline[timeline.Hours>=0]
-        timeline = timeline[timeline.Hours<=24]
-        timeline = timeline.drop_duplicates()
-        #timeline = timeline.fillna(0)
-        if timeline.empty:
-            continue
-        #try:
-        #    wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav')
-        #except:
-        #    print "wave not"+str(sub)
-        #    continue
-        substr = "%06d"%(sub)
-        subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
-        wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
-        #print wavepath+subpathstr
-        signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
-        try:
-            baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
-        except:
-            #print "baseline"+str(sub)
-            continue
-        t_i = timeline.Hours
-        #print signal.shape
-        #add the time from waveforms as well as that will have to be sorted into the T and appended and removed for duplicates from this T_i
-        wave_t = [i*1.667 for i in range(len(grid_times)*6)]
-        T_i = sorted(list(set(t_i).union(set(wave_t))))
-        #creating map for the timeline hours into the final time indices
-        T_i_map = {n:i for i,n in enumerate(T_i)}
-        t_i_map = {i:T_i_map[n] for i,n in enumerate(t_i)}
-        wave_t_map = {i:T_i_map[n] for i,n in enumerate(wave_t)}
-        row_map = {n:i for i,n in enumerate(t_i.index)}
-        #for every 10 minutes
-        gran = 125*60*10
-        starttime = intime[stay_no]
-        endtime = starttime+datetime.timedelta(hours=24)
-        base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
-        if base_time>starttime:
-            start_row = int(ceil((base_time-starttime).total_seconds())//600)
-        else:
-            start_row = 0
-        #print start_row
-        signal = np.pad(signal,((0,(int(ceil(len(signal)/(125.0*600))*gran))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
-        #print signal.shape
-        end_row = start_row+(signal.shape[0]/gran)
-        last_row = 24*6
-        if last_row<end_row:
-            end_row = last_row
-            signal = signal[:(last_row-start_row)*gran]
-        waveform = np.column_stack((np.mean(signal.reshape(-1,gran), axis=1), np.std(signal.reshape(-1,gran), axis=1)))
-        #this becomes param value for ind_kf??
-        column_map = {n:i for i,n in enumerate(list(timeline.columns))}
-        #create and add discrete numeric values for glascow records
-        col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
-        for col,dlist in col_names:
-            tseries = timeline[col]
-            tseries = tseries.dropna()
-            for index, value in tseries.iteritems():
-                try:
-                    value = dlist[value]
-                except:
-                    dlist[value] = len(dlist)
-                    value = dlist[value]
-                Y_i.append(value)
-                ind_kf_i.append(column_map[col]-1)
-                ind_kt_i.append(t_i_map[row_map[index]])
-        #drop the glascow and hours column and create a mask of values present
-        col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
-        timeline = timeline.drop(col_del,axis=1)
-        mask = timeline.notnull()
-        dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
-        #add values to Y,ind_kf and ind_kt acc to the mask
-        len_columns = len(timeline.columns)
-        m_i = len_columns
-        s_i = m_i+1
-        for t in range(len(t_i)):
-            presence = mask.iloc[t]
-            #print presence
-            for i in range(len_columns):
-                value = timeline.iloc[t][i]
-                if presence[i]==True and type(value) is not str:
-                    Y_i.append(value)
-                    ind_kf_i.append(dropped_col_map[i]-1)
-                    ind_kt_i.append(t_i_map[t])
-        for index in range(start_row,end_row):
-            vm = waveform[index-start_row][0]
-            vs = waveform[index-start_row][1]
-            if not isnan(vm):
-                Y_i.append(vm)
-                ind_kf_i.append(m_i)
-                ind_kt_i.append(wave_t_map[index])
-                Y_i.append(vs)
-                ind_kf_i.append(s_i)
-                ind_kt_i.append(wave_t_map[index])
-        '''
-        len_columns = len(timeline.columns)
-        t_index = 0
-        timeline_index = 0
-        for t in T_i:
-            if t in t_i:
-                values = timeline.iloc[timeline_index]
-                presence = timeline.iloc[timeline_index].isnull()
-                for i in range(1,len_columns):
-                    if presence[i]==False:
-                        if type(values[i]) is not str:
-                            if values[i]>0:
-                                Y_i.append(np.log(values[i]))
-                                ind_kf_i.append(i-1)
-                                ind_kt_i.append(t_index)
-                timeline_index += 1
-            if t in wave_t:
-                index = int((t/0.1)-1)
-                vm = wavem.iloc[index]
-                vs = wavestd.iloc[index]
-                if not isnan(vm):
-                    #print vm[0]
-                    Y_i.append(vm[0])
-                    ind_kf_i.append(m_i)
-                    ind_kt_i.append(t_index)
-                    Y_i.append(vs[0])
-                    ind_kf_i.append(s_i)
-                    ind_kt_i.append(t_index)
-            t_index += 1
-        '''
-        #if len(Y_i)>150:
-            #print "too many"+str(sub)
-        #    continue
-        print "processing stay"+str(stay_no)
-        #sub_stays_included.append((sub,stay_no))
-        rnn_grid_times.append(grid_times)
-        #waveforms.append(waveform)
-        end_times.append(len(rnn_grid_times[-1])-1)
-        num_obs_times.append(len(T_i))
-        #num_obs_values.append(np.sum(timeline.count()[1:]))
-        num_obs_values.append(len(Y_i))
-        num_rnn_grid_times.append(len(rnn_grid_times[-1]))
-        #rnn_grid_times.append(list(np.arange(num_rnn_grid_times[-1])))
-        baseline = baseline.fillna(0)
-        baseline_i = baseline.iloc[0].to_list()
-        #print baseline_i
-        #raw_input()
-        try:
-            medicines = pd.read_csv(data_path+'medicines/'+str(sub)+'_stay'+str(stay_no)+'.med',nrows=24)
-            #medicines = medicines.fillna(0)
-            meds_on_grid_i = medicines.to_numpy()
-        except:
-            meds_on_grid_i = np.zeros((int(num_rnn_grid_times[-1]),5))
-        #validation
-        if num_rnn_grid_times[-1]!=len(meds_on_grid_i):
-            print "tafavat in sub", sub, str(num_rnn_grid_times[-1]), str(len(meds_on_grid_i))
-        meds_on_grid.append(meds_on_grid_i.tolist())
-        baseline_covs.append(baseline_i)
-        Y.append(Y_i)
-        ind_kf.append(ind_kf_i)
-        ind_kt.append(ind_kt_i)
-        T.append(T_i)
-        labels.append(label)
-        #if len(labels)>=150:
-        #    breakflag = True
-        #    break
-        end_time = time()
-        print("took time:%s"%(end_time-start_time))
-        if breakflag:
-            print("dataset ends at %s"%sub)
-            break
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        #for sub,stay_no,date,index in sub_stay:
+        results = executor.map(get_encounter_high, sub_stay,chunksize=3)
+        for stay_info,values in zip(sub_stay,results):
+            sub,stay_no,date,index = stay_info
+            #print("Preparing subject %s"%str(sub))
+            T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label = values
+            rnn_grid_times.append(grid_times)
+            end_times.append(len(rnn_grid_times[-1])-1)
+            num_obs_times.append(len(T_i))
+            num_obs_values.append(len(Y_i))
+            num_rnn_grid_times.append(len(rnn_grid_times[-1]))
+            #validation
+            if num_rnn_grid_times[-1]!=len(meds_on_grid_i):
+                print "tafavat in sub", sub, str(num_rnn_grid_times[-1]), str(len(meds_on_grid_i))
+            meds_on_grid.append(meds_on_grid_i.tolist())
+            baseline_covs.append(baseline_i)
+            Y.append(Y_i)
+            ind_kf.append(ind_kf_i)
+            ind_kt.append(ind_kt_i)
+            T.append(T_i)
+            labels.append(label)
+            end_time = time()
+            #print("took time:%s"%(end_time-start_time))
     '''
     print np.array(num_obs_times).mean()
     print np.array(num_obs_values).mean()
@@ -312,6 +271,65 @@ def retrieve_mimic_dataset(train):
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
+def get_encounter_baseline(values):
+    sub,stay_no,date,index = values
+    Y_i = []
+    ind_kf_i = []
+    ind_kt_i = []
+    stays = pd.read_csv(data_path+'root/'+str(sub)+'/stays.csv', parse_dates=True)
+    intime = pd.to_datetime(stays['INTIME'])
+    outtime = pd.to_datetime(stays['OUTTIME'])
+    starttime = intime.dt.round('1h')
+    label = stays['MORTALITY_INHOSPITAL'][stay_no]
+    timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
+    timeline = timeline[timeline.Hours>=0]
+    timeline = timeline[timeline.Hours<=24]
+    timeline = timeline.drop_duplicates()
+    baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
+    grid_times = range(24)
+    T_i = timeline.Hours
+    column_map = {n:i for i,n in enumerate(list(timeline.columns))}
+    #the drop and remove neg Hours value screws up the indices. So create a map for the final index numbers in the data frame and the actually 't' index we want to index. useful to glascow vars
+    row_map = {n:i for i,n in enumerate(T_i.index)}
+    #create and add discrete numeric values for glascow records
+    col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
+    for col,dlist in col_names:
+        tseries = timeline[col]
+        tseries = tseries.dropna()
+        for index, value in tseries.iteritems():
+            try:
+                value = dlist[value]
+            except:
+                dlist[value] = len(dlist)
+                value = dlist[value]
+            Y_i.append(value)
+            ind_kf_i.append(column_map[col]-1)
+            ind_kt_i.append(row_map[index])
+    #drop the glascow and hours column and create a mask of values present
+    col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
+    timeline = timeline.drop(col_del,axis=1)
+    mask = timeline.notnull()
+    dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
+    #log transform, impute and standardscaler
+    len_columns = len(timeline.columns)
+    #add values to Y,ind_kf and ind_kt acc to the mask
+    for t in range(T_i.shape[0]):
+        presence = mask.iloc[t]
+        for i in range(len_columns):
+            value = timeline.iloc[t][i]
+            if presence[i]==True and type(value) is not str:
+                Y_i.append(value)
+                ind_kf_i.append(dropped_col_map[i]-1)
+                ind_kt_i.append(t)
+    baseline = baseline.fillna(0)
+    baseline_i = baseline.iloc[0].to_list()
+    try:
+        medicines = pd.read_csv(data_path+'medicines/'+str(sub)+'_stay'+str(stay_no)+'.med',nrows=24)
+        meds_on_grid_i = medicines.to_numpy()
+    except:
+        meds_on_grid_i = np.zeros((24,5))
+    return T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label
+
 def prep_baseline_mgp(train,fold):
     '''
     fsub = open('subject_presence','r')
@@ -349,135 +367,31 @@ def prep_baseline_mgp(train,fold):
     eth_count = 0
     Gender = {'M':0, 'F':1}
     #for generating the discrete numeric lables for glascow columns
-    glascow_eye_open = {}
-    glascow_motor = {}
-    glascow_total = {}
-    glascow_verbal = {}
 
     breakflag = False
 
-    for sub,stay_no,date,index in sub_stay:
-        start_time = time()
-        print("Preparing subject %s"%str(sub))
-        Y_i = []
-        ind_kf_i = []
-        ind_kt_i = []
-        stays = pd.read_csv(data_path+'root/'+str(sub)+'/stays.csv', parse_dates=True)
-        #timeline = pd.read_csv('~/mimic3-benchmarks/data/root/'+str(subject_indices[index])+'/'+str(sub)+'/episode1_timeseries.csv')
-        intime = pd.to_datetime(stays['INTIME'])
-        outtime = pd.to_datetime(stays['OUTTIME'])
-        starttime = intime.dt.round('1h')
-        label = stays['MORTALITY_INHOSPITAL'][stay_no]
-        #for stay_no in range(stays.shape[0]):
-        try:
-            timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
-        except:
-            continue
-        #grid_times = list(np.arange(ceil(((outtime-starttime).dt.total_seconds()/(60*60))[stay_no])+1))
-        #if len(grid_times)<24:
-            #cancelled_subs.append(sub)
-            #continue
-        timeline = timeline[timeline.Hours>=0]
-        timeline = timeline[timeline.Hours<=24]
-        timeline = timeline.drop_duplicates()
-        #timeline = timeline.fillna(0)
-        if timeline.empty:
-            continue
-        try:
-            baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
-        except:
-            continue
-        #try:
-        #    wave = pd.read_csv(data_path+'waves/'+str(sub)+'_stay'+str(stay_no)+'.wav')
-        #except:
-        #    #print "wave not"+str(sub)
-        #    continue
-        grid_times = range(24)
-        T_i = timeline.Hours
-        column_map = {n:i for i,n in enumerate(list(timeline.columns))}
-        #the drop and remove neg Hours value screws up the indices. So create a map for the final index numbers in the data frame and the actually 't' index we want to index. useful to glascow vars
-        row_map = {n:i for i,n in enumerate(T_i.index)}
-        #create and add discrete numeric values for glascow records
-        col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
-        for col,dlist in col_names:
-            tseries = timeline[col]
-            tseries = tseries.dropna()
-            for index, value in tseries.iteritems():
-                try:
-                    value = dlist[value]
-                except:
-                    dlist[value] = len(dlist)
-                    value = dlist[value]
-                Y_i.append(value)
-                ind_kf_i.append(column_map[col]-1)
-                ind_kt_i.append(row_map[index])
-        #drop the glascow and hours column and create a mask of values present
-        #print timeline.shape
-        col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
-        timeline = timeline.drop(col_del,axis=1)
-        #print timeline.shape
-        mask = timeline.notnull()
-        dropped_col_map = {i:column_map[n] for i,n in enumerate(list(timeline.columns))}
-        #log transform, impute and standardscaler
-        len_columns = len(timeline.columns)
-        #timeline = timeline.apply(np.log)
-        #print timeline.shape
-        #imp = Imputer(strategy="mean",axis=0)
-        #timeline = scale(imp.fit_transform(timeline))
-        #print timeline.shape, len_columns, T_i.shape
-        #timeline = scaler.transform(imp.fit_transform(timeline))
-        #add values to Y,ind_kf and ind_kt acc to the mask
-        for t in range(T_i.shape[0]):
-            presence = mask.iloc[t]
-            #print presence
-            for i in range(len_columns):
-                value = timeline.iloc[t][i]
-                if presence[i]==True and type(value) is not str:
-                    Y_i.append(value)
-                    ind_kf_i.append(dropped_col_map[i]-1)
-                    ind_kt_i.append(t)
-            #print Y_i
-            #print ind_kf_i
-            #print ind_kt_i
-        #print timeline.head()
-        #print T_i.shape
-        #if len(T_i)>35:
-        #    continue
-        #sub_stay[sub].append(stay_no)
-        rnn_grid_times.append(grid_times)
-        end_times.append(len(rnn_grid_times[-1])-1)
-        num_obs_times.append(len(T_i))
-        #num_obs_values.append(np.sum(timeline.count()[1:]))
-        num_obs_values.append(len(Y_i))
-        num_rnn_grid_times.append(len(rnn_grid_times[-1]))
-        #rnn_grid_times.append(list(np.arange(num_rnn_grid_times[-1])))
-        baseline = baseline.fillna(0)
-        baseline_i = baseline.iloc[0].to_list()
-        #print baseline_i
-        #raw_input()
-        try:
-            medicines = pd.read_csv(data_path+'medicines/'+str(sub)+'_stay'+str(stay_no)+'.med',nrows=24)
-            #medicines = medicines.fillna(0)
-            meds_on_grid_i = medicines.to_numpy()
-        except:
-            meds_on_grid_i = np.zeros((int(num_rnn_grid_times[-1]),5))
-        #validation
-        if num_rnn_grid_times[-1]!=len(meds_on_grid_i):
-            print "tafavat in sub", sub, str(num_rnn_grid_times[-1]), str(len(meds_on_grid_i))
-        meds_on_grid.append(meds_on_grid_i.tolist())
-        baseline_covs.append(baseline_i)
-        Y.append(Y_i)
-        ind_kf.append(ind_kf_i)
-        ind_kt.append(ind_kt_i)
-        T.append(T_i.tolist())
-        labels.append(label)
-        end_time = time()
-        print("took time %s"%(end_time-start_time))#if len(labels)>=150:
-        #    breakflag = True
-        #    break
-        if breakflag:
-            print("dataset ends at %s"%sub)
-            break
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        #for sub,stay_no,date,index in sub_stay:
+        results = executor.map(get_encounter_baseline, sub_stay,chunksize=3)
+        for stay_info,values in zip(sub_stay,results):
+            sub,stay_no,date,index = stay_info
+            T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label = values
+            rnn_grid_times.append(grid_times)
+            end_times.append(len(rnn_grid_times[-1])-1)
+            num_obs_times.append(len(T_i))
+            num_obs_values.append(len(Y_i))
+            num_rnn_grid_times.append(len(rnn_grid_times[-1]))
+            #validation
+            if num_rnn_grid_times[-1]!=len(meds_on_grid_i):
+                print "tafavat in sub", sub, str(num_rnn_grid_times[-1]), str(len(meds_on_grid_i))
+            meds_on_grid.append(meds_on_grid_i.tolist())
+            baseline_covs.append(baseline_i)
+            Y.append(Y_i)
+            ind_kf.append(ind_kf_i)
+            ind_kt.append(ind_kt_i)
+            T.append(T_i.tolist())
+            labels.append(label)
+            end_time = time()
     #print("num of grid times:%s"%num_rnn_grid_times)
     #'''
     print np.array(num_obs_times).mean()
@@ -515,5 +429,5 @@ def prep_baseline_mgp(train,fold):
     return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
 if __name__=="__main__":
-    #prep_baseline_mgp('train')
-    prep_highf_mgp('train')
+    #prep_baseline_mgp('train',0)
+    prep_highf_mgp('train',0)
