@@ -158,6 +158,8 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
             padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
             waves = tf.slice(waveform_outputs,[i,0,0],[1,-1,-1])
             tiled_waves = tf.tile(waves,[n_mc_smps,1,1])
+            #printop = tf.Print(tiled_waves,[tf.shape(padded_GPdraws_medcovs), tf.shape(tiled_waves)],"medcovs and waveform shape:",-1,100)
+            #with tf.control_dependencies([printop]):
             padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves],2)
             Z = tf.concat([Z,padded_GPdraws_medcovs_waves],0)
 
@@ -239,7 +241,7 @@ flags = tf.app.flags
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
 flags.DEFINE_float("epochs",55.0,"")
-flags.DEFINE_float("batch",3.0,"")
+flags.DEFINE_float("batch",5.0,"")
 flags.DEFINE_float("n_layers",3.0,"")
 FLAGS=flags.FLAGS
 
