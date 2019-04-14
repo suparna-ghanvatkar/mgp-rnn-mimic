@@ -166,9 +166,10 @@ def prep_highf_mgp(train,fold):
     '''
     #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
     #sub_stay = sub_stay[:10]
-    sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    #sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    sub_stay = pickle.load(open('balanced_data_'+train+'_'+str(fold)+'.pickle','r'))
     count = len(sub_stay)
-    sub_stay = sub_stay[:(count/5)*5]
+    #sub_stay = sub_stay[:(count/5)*5]
     #sub_stay = sub_stay[:5000]
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
@@ -344,9 +345,10 @@ def prep_baseline_mgp(train,fold):
     '''
     #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
     #sub_stay = sub_stay[:10]
-    sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    #sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    sub_stay = pickle.load(open('balanced_data_'+train+'_'+str(fold)+'.pickle','r'))
     count = len(sub_stay)
-    sub_stay = sub_stay[:(count/5)*5]
+    #sub_stay = sub_stay[:(count/5)*5]
     #sub_stay = sub_stay[:30]
     #subject_ids = subject_ids[:700]
     #cancelled_subs = []

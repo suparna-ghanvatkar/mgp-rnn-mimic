@@ -110,10 +110,11 @@ def prep_mimic(train,fold):
     subject_ids = [int(x[0]) for x in lines]
     sub_stays_included = []
     '''
-    sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    #sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
+    sub_stay = pickle.load(open('balanced_data_'+train+'_'+str(fold)+'.pickle','r'))
     #sub_stay = sub_stay[:24]
     tot = len(sub_stay)
-    sub_stay = sub_stay[:(tot/5)*5]
+    #sub_stay = sub_stay[:(tot/5)*5]
     #print sub_stay
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []

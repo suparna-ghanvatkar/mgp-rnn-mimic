@@ -24,7 +24,7 @@ from simulations import *
 from patient_events import *
 from tensorflow.python import debug as tf_debug
 
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 #####
 ##### Tensorflow functions
@@ -228,7 +228,7 @@ flags = tf.app.flags
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
 flags.DEFINE_float("epochs",55.0,"")
-flags.DEFINE_float("batch",5.0,"")
+flags.DEFINE_float("batch",10.0,"")
 flags.DEFINE_float("n_layers",3.0,"")
 FLAGS=flags.FLAGS
 
@@ -276,7 +276,7 @@ if __name__ == "__main__":
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
         values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_baseline_mgp('train',args.fold)
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('val',args.fold)
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_baseline_mgp('test',args.fold)
         num_enc = len(num_obs_times_tr)
         #(num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         #values,ind_lvs,ind_times,meds_on_grid,covs) = prep_baseline_mgp('train')
@@ -287,7 +287,7 @@ if __name__ == "__main__":
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
         values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_mimic_dataset('train')
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_mimic_dataset('val')
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_mimic_dataset('test')
         num_enc = len(num_obs_times_tr)
         M = 25
         n_meds = 5
@@ -296,7 +296,7 @@ if __name__ == "__main__":
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
         values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = prep_highf_mgp('train',args.fold)
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_highf_mgp('val',args.fold)
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = prep_highf_mgp('test',args.fold)
         num_enc = len(num_obs_times_tr)
         #(num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         #values,ind_lvs,ind_times,meds_on_grid,covs) = prep_highf_mgp('train')
@@ -307,7 +307,7 @@ if __name__ == "__main__":
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
         values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr) = retrieve_high_mimic_dataset('train')
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_high_mimic_dataset('val')
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te) = retrieve_high_mimic_dataset('test')
         num_enc = len(num_obs_times_tr)
         M = 27
         n_meds = 5
@@ -449,10 +449,10 @@ if __name__ == "__main__":
 
     #Create a visualizer object
     merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter('tensorboard/'+args.high+'/train',sess.graph)
+    train_writer = tf.summary.FileWriter('tensorboard/'+args.high+'/train/'+str(args.fold),sess.graph)
     if not os.path.exists('tensorboard'):
         os.makedirs('tensorboard')
-    test_writer = tf.summary.FileWriter('tensorboard/'+args.high+'/test')
+    test_writer = tf.summary.FileWriter('tensorboard/'+args.high+'/test/'+str(args.fold))
 
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
@@ -530,11 +530,11 @@ if __name__ == "__main__":
                 sys.stdout.flush()
                 evaluation = [te_loss,te_auc,te_prc,te_acc]
                 #create a folder and put model checkpoints there
-                #pickle.dump(te_probs, open('mgp_'+args.high+'_pred_probs.pickle','w'))
+                pickle.dump(te_probs, open('mgp_'+args.high+'_pred_probs'+str(args.fold)+'.pickle','w'))
                 if args.high=="low":
-                    saver.save(sess, "MGP-RNN/", global_step=total_batches)
+                    saver.save(sess, "MGP-RNN/"+str(args.fold)+"/", global_step=total_batches)
                 else:
-                    saver.save(sess, "MGP-RNN-HIGHF/", global_step=total_batches)
+                    saver.save(sess, "MGP-RNN-HIGHF/"+str(args.fold)+"/", global_step=total_batches)
         print("Finishing epoch "+"{:d}".format(i)+", took "+\
               "{:.3f}".format(time()-epoch_start))
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch

@@ -241,7 +241,7 @@ flags = tf.app.flags
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
 flags.DEFINE_float("epochs",55.0,"")
-flags.DEFINE_float("batch",5.0,"")
+flags.DEFINE_float("batch",10.0,"")
 flags.DEFINE_float("n_layers",3.0,"")
 FLAGS=flags.FLAGS
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
         values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_mimic('train',args.fold)
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('val',args.fold)
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('test',args.fold)
         num_enc = len(num_obs_times_tr)
         M = 25
         n_meds = 5
@@ -438,10 +438,10 @@ if __name__ == "__main__":
 
     #Create a visualizer object
     merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter('hierarchical_tensorboard/train',sess.graph)
-    if not os.path.exists('hierarchical_tensorboard'):
-        os.makedirs('hierarchical_tensorboard')
-    test_writer = tf.summary.FileWriter('hierarchical_tensorboard/test')
+    train_writer = tf.summary.FileWriter('tensorboard/hierarchical/train/'+str(args.fold),sess.graph)
+    if not os.path.exists('tensorboard'):
+        os.makedirs('tensorboard')
+    test_writer = tf.summary.FileWriter('tensorboard/hierarchical/test/'+str(args.fold))
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
     print("Graph setup!")
@@ -460,7 +460,7 @@ if __name__ == "__main__":
                     times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te)
 
     ##### Main training loop
-    saver = tf.train.Saver(max_to_keep = None)
+    saver = tf.train.Saver(max_to_keep = 20)
 
     total_batches = 0
     for i in range(training_iters):
@@ -537,7 +537,7 @@ if __name__ == "__main__":
                 te_prc = average_precision_score(labels_te, pred_probs)
                 #auc = auc/no_iters
                 #prc = prc/no_iters
-                #pickle.dump(pred_probs,open('hierarchical_pred_probs.pickle','w'))
+                pickle.dump(pred_probs,open('hierarchical_pred_probs_'+str(args.fold)+'.pickle','w'))
                 print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
                       "{:.2f}".format(time()-test_t)+\
                       ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
@@ -546,7 +546,7 @@ if __name__ == "__main__":
                 sys.stdout.flush()
 
                 #create a folder and put model checkpoints there
-                saver.save(sess, "HIERARCHICAL_MGP/", global_step=total_batches)
+                saver.save(sess, "HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
         print("Finishing epoch "+"{:d}".format(i)+", took "+\
               "{:.3f}".format(time()-epoch_start))
 
