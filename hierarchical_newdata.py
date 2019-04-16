@@ -25,10 +25,10 @@ from hierarchical_util import *
 from hierarchical_simulations import *
 #from tf.keras.layers import *
 #from patient_events import *
-from patient_traintest_final import *
-#from patient_hierar_prep import *
+#from patient_traintest_final import *
+from patient_hierar_prep import *
 from tensorflow.python import debug as tf_debug
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 #####
 ##### Tensorflow functions
@@ -228,7 +228,7 @@ def get_probs_and_accuracy(preds,O):
         probs = tf.concat([probs,[tf.reduce_mean(tf.slice(all_probs,[i*n_mc_smps],[n_mc_smps]))]],0)
         return i+1,probs
     i = tf.constant(0)
-    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])])
+    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])] )
 
     #compare to truth; just use cutoff of 0.5 for right now to get accuracy
     correct_pred = tf.equal(tf.cast(tf.greater(probs,0.5),tf.int32), O)
@@ -242,7 +242,7 @@ flags = tf.app.flags
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
 flags.DEFINE_float("epochs",55.0,"")
-flags.DEFINE_float("batch",30.0,"")
+flags.DEFINE_float("batch",10.0,"")
 flags.DEFINE_float("n_layers",3.0,"")
 #flags.DEFINE_float("wave_layers",2.0,"")
 FLAGS=flags.FLAGS
@@ -446,10 +446,10 @@ if __name__ == "__main__":
 
     #Create a visualizer object
     merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter('tensorboard/hierarchical/train/'+str(args.fold),sess.graph)
+    train_writer = tf.summary.FileWriter('tensorboard/hierarchical_newdata/train/'+str(args.fold),sess.graph)
     if not os.path.exists('tensorboard'):
         os.makedirs('tensorboard')
-    test_writer = tf.summary.FileWriter('tensorboard/hierarchical/test/'+str(args.fold))
+    test_writer = tf.summary.FileWriter('tensorboard/hierarchical_newdata/test/'+str(args.fold))
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
     print("Graph setup!")
@@ -489,16 +489,16 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-            #'''
+            summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+            train_writer.add_summary(summary,i)
+            '''
             try:
-                summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-                train_writer.add_summary(summary,i)
+                loss_,_ = sess.run([loss,train_op],feed_dict)
             except:
                 print "problem in "+str(batch)
                 batch+=1; total_batches+=1
                 continue
-            #'''
+            '''
             print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
                   ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
             sys.stdout.flush()
@@ -545,7 +545,7 @@ if __name__ == "__main__":
                 te_prc = average_precision_score(labels_te, pred_probs)
                 #auc = auc/no_iters
                 #prc = prc/no_iters
-                pickle.dump(pred_probs,open('hierarchical_pred_probs_'+str(args.fold)+'.pickle','w'))
+                pickle.dump(pred_probs,open('hierarchical_newdata_pred_probs_'+str(args.fold)+'.pickle','w'))
                 print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
                       "{:.2f}".format(time()-test_t)+\
                       ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
