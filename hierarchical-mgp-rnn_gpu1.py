@@ -28,7 +28,7 @@ from hierarchical_simulations import *
 from patient_traintest_final import *
 #from patient_hierar_prep import *
 from tensorflow.python import debug as tf_debug
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 #####
 ##### Tensorflow functions
@@ -288,7 +288,7 @@ if __name__ == "__main__":
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.sim=="data":
-        '''
+        #'''
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
         values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_mimic('train',args.fold)
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
@@ -297,6 +297,7 @@ if __name__ == "__main__":
         '''
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_mimic('train',args.fold)
+        '''
         M = 25
         n_meds = 5
         n_covs = 9
@@ -308,7 +309,7 @@ if __name__ == "__main__":
         n_meds = 5
         n_covs = 9
 
-    N_tot = len(labels) #total encounters
+    #N_tot = len(labels) #total encounters
     if args.lr:
         FLAGS.lr = args.lr
     if args.l2_penalty:
@@ -327,7 +328,7 @@ if __name__ == "__main__":
         FLAGS.epsilon = args.epsilon
     #if args.wave_layers:
     #    FLAGS.wave_layers = args.wave_layers
-
+    '''
     train_test_perm = rs.permutation(N_tot)
     #train_test_perm = range(N_tot)
     #val_frac = 0.1 #fraction of full data to set aside for testing
@@ -388,8 +389,10 @@ if __name__ == "__main__":
     n_mc_smps = 25
 
     # Create graph
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.8
     ops.reset_default_graph()
-    sess = tf.Session()
+    sess = tf.Session(config=config)
     if args.debug:
         sess = tf_debug.LocalCLIDebugWrapperSession(sess)
     ##### tf Graph - inputs
