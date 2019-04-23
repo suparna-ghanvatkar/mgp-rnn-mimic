@@ -30,7 +30,7 @@ def get_encounter(values):
     label = stays['MORTALITY_INHOSPITAL'][stay_no]
     timeline = pd.read_csv(data_path+'root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv')
     grid_times = range(24)
-
+    #timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
     timeline = timeline[timeline.Hours>=0]
     timeline = timeline[timeline.Hours<=24]
     timeline = timeline.drop_duplicates()
