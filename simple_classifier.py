@@ -12,6 +12,7 @@ import argparse
 from sklearn import svm
 from sklearn.metrics import roc_auc_score
 from sklearn.neural_network import MLPClassifier
+from sklearn.neighbors import KNeighborsClassifier
 '''
 The baselines are: Ethnicity, Gender, Age, Height, Weight
 '''
@@ -133,15 +134,22 @@ if __name__=="__main__":
     #print y_train
     x_test,y_test = data_prep('test',args.fold)
     #x_test = np.nan_to_num(np.array(x_test))
+    print("For KNN")
+    neigh = KNeighborsClassifier(n_neighbors=60, weights='distance')
+    neigh.fit(x_train,y_train)
+    y_pred = neigh.predict(x_test)
+    print(roc_auc_score(y_test,y_pred))
 
+    '''
     print("For SVM")
-    clf_svm = svm.SVC()
+    clf_svm = svm.SVC(kernel='sigmoid')
     clf_svm.fit(x_train,y_train)
     y_pred = clf_svm.predict(x_test)
     print(roc_auc_score(y_test,y_pred))
+    '''
 
     print("For MLP")
-    clf_mlp = MLPClassifier()
+    clf_mlp = MLPClassifier(hidden_layer_sizes=(200,),solver='adam')
     clf_mlp.fit(x_train,y_train)
     y_pred = clf_mlp.predict(x_test)
     print(roc_auc_score(y_test,y_pred))
