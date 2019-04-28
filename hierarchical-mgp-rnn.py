@@ -159,9 +159,11 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
             padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
             waves = tf.slice(waveform_outputs,[i,0,0],[1,-1,-1])
             tiled_waves = tf.tile(waves,[n_mc_smps,1,1])
+            waves2 = tf.slice(waveform2_outputs,[i,0,0],[1,-1,-1])
+            tiled_waves2 = tf.tile(waves2,[n_mc_smps,1,1])
             #printop = tf.Print(tiled_waves,[tf.shape(padded_GPdraws_medcovs), tf.shape(tiled_waves)],"medcovs and waveform shape:",-1,100)
             #with tf.control_dependencies([printop]):
-            padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves],2)
+            padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves,tiled_waves2],2)
             Z = tf.concat([Z,padded_GPdraws_medcovs_waves],0)
 
         return i+1,Z
@@ -244,7 +246,7 @@ flags.DEFINE_float("lr",0.00057,"")
 flags.DEFINE_float("l2_penalty",0.005177,"")
 flags.DEFINE_float("n_layers",2.0,"")
 flags.DEFINE_float("epochs",140.0,"")
-flags.DEFINE_float("batch",30.0,"")
+flags.DEFINE_float("batch",5.0,"")
 flags.DEFINE_float("beta1",0.9,"")
 flags.DEFINE_float("beta2",0.999,"")
 flags.DEFINE_float("epsilon",1e-8,"")
@@ -290,9 +292,9 @@ if __name__ == "__main__":
     elif args.sim=="data":
         #'''
         (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_mimic('train',args.fold)
+        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr, H2_tr) = prep_mimic('train',args.fold)
         (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('test',args.fold)
+        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te, H2_te) = prep_mimic('test',args.fold)
         num_enc = len(num_obs_times_tr)
         '''
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
@@ -386,7 +388,7 @@ if __name__ == "__main__":
     #wave_layers = int(FLAGS.wave_layers)
     n_layers = int(FLAGS.n_layers) # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
-    input_dim = M+n_meds+n_covs+waveform_dim #dimensionality of input sequence.
+    input_dim = M+n_meds+n_covs+2*waveform_dim #dimensionality of input sequence.
     n_mc_smps = 25
 
     # Create graph
@@ -412,6 +414,7 @@ if __name__ == "__main__":
     num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
 
     waveform = tf.placeholder("float",[None,None,3600*2])
+    waveform2 = tf.placeholder("float",[None,None,3600*2])
 
     N = tf.shape(Y)[0]
 
@@ -442,7 +445,7 @@ if __name__ == "__main__":
     #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
 
     with tf.name_scope('waveform_rnn'):
-        waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
+        waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim,name='waveform1_cell')
         #stacked_waveform_cell = tf.contrib.rnn.MultiRNNCell([waveform_cell for _ in range(wave_layers)])
         #initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
         #waveform_outputs = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(waveform_dim, input_shape=(None,3600,2), output_shape=(None,waveform_dim)))(waveform)
@@ -451,6 +454,13 @@ if __name__ == "__main__":
     #wshape = waveform_outputs.get_shape().as_list()
     #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
     #print waveform_outputs
+
+    with tf.name_scope('waveform2_rnn'):
+        waveform2_cell = tf.contrib.rnn.LSTMCell(waveform_dim,name='waveform2_cell')
+        waveform2_outputs, s2 = tf.nn.dynamic_rnn(cell=waveform2_cell, inputs=waveform2, dtype=tf.float32)
+        waveform2_outputs = tf.reshape(waveform2_outputs,[batch_size,-1,waveform_dim])
+
+
     #auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
     stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
 
@@ -493,8 +503,8 @@ if __name__ == "__main__":
         ends = np.append(ends,Ntr)
     num_batches = len(ends)
 
-    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te, H_pad_te = pad_data(
-                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te)
+    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te, H_pad_te, H2_pad_te = pad_data(
+                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te,H2_te)
 
     ##### Main training loop
     saver = tf.train.Saver(max_to_keep = 20)
@@ -510,12 +520,12 @@ if __name__ == "__main__":
         for s,e in zip(starts,ends):
             batch_start = time()
             inds = perm[s:e]
-            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
+            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad, H2_pad = pad_data(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
-                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
+                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds),vectorize(H2_tr,inds))
             #print H_pad.shape
             #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
-            feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+            feed_dict={waveform: H_pad, waveform2: H2_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
@@ -553,6 +563,7 @@ if __name__ == "__main__":
                 for j in range(no_iters):
                     end_i = start_i+batch_size
                     H_pad_bte = H_pad_te[start_i:end_i]
+                    H2_pad_bte = H2_pad_te[start_i:end_i]
                     Y_pad_bte = Y_pad_te[start_i:end_i]
                     T_pad_bte = T_pad_te[start_i:end_i]
                     ind_kf_pad_bte = ind_kf_pad_te[start_i:end_i]
@@ -563,7 +574,7 @@ if __name__ == "__main__":
                     num_obs_values_bte = num_obs_values_te[start_i:end_i]
                     num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
                     labels_bte = labels_te[start_i:end_i]
-                    feed_dict={waveform:H_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
+                    feed_dict={waveform:H_pad_bte, waveform2:H2_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
                        med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
                        num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
                     summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
