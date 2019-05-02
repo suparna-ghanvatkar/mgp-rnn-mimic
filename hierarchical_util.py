@@ -78,6 +78,7 @@ def pad_data(T,Y,ind_kf,ind_kt,X,meds_on_grid,covs,Hi,Hi2):
     #if H_maxlen!=(grid_maxlen*450000):
     #    print "tafavat"+str(H_maxlen)+" "+str(grid_maxlen)
     H_pad = H_pad.reshape((N,grid_maxlen,3600*2))
+    H2_pad = H2_pad.reshape((N,grid_maxlen,3600*2))
     #print H_pad.shape
     return T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad, H2_pad
 

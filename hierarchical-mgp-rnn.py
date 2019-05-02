@@ -246,7 +246,7 @@ flags.DEFINE_float("lr",0.00057,"")
 flags.DEFINE_float("l2_penalty",0.005177,"")
 flags.DEFINE_float("n_layers",2.0,"")
 flags.DEFINE_float("epochs",140.0,"")
-flags.DEFINE_float("batch",5.0,"")
+flags.DEFINE_float("batch",30.0,"")
 flags.DEFINE_float("beta1",0.9,"")
 flags.DEFINE_float("beta2",0.999,"")
 flags.DEFINE_float("epsilon",1e-8,"")
@@ -368,6 +368,7 @@ if __name__ == "__main__":
     print("Train/test split : %s-%s"%(Ntr,Nte))
     print("data fully setup!")
     print("test labels are:%s"%labels_te)
+
     sys.stdout.flush()
 
     #####
@@ -444,21 +445,23 @@ if __name__ == "__main__":
     #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
     #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
 
-    with tf.name_scope('waveform_rnn'):
-        waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim,name='waveform1_cell')
-        #stacked_waveform_cell = tf.contrib.rnn.MultiRNNCell([waveform_cell for _ in range(wave_layers)])
-        #initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
-        #waveform_outputs = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(waveform_dim, input_shape=(None,3600,2), output_shape=(None,waveform_dim)))(waveform)
-        waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
-        waveform_outputs = tf.reshape(waveform_outputs,[batch_size,-1,waveform_dim])
-    #wshape = waveform_outputs.get_shape().as_list()
-    #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
-    #print waveform_outputs
+    with tf.variable_scope('waveform_rnn'):
+        with tf.name_scope('waveform_rnn'):
+            waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
+            #stacked_waveform_cell = tf.contrib.rnn.MultiRNNCell([waveform_cell for _ in range(wave_layers)])
+            #initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
+            #waveform_outputs = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(waveform_dim, input_shape=(None,3600,2), output_shape=(None,waveform_dim)))(waveform)
+            waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
+            waveform_outputs = tf.reshape(waveform_outputs,[batch_size,-1,waveform_dim])
+        #wshape = waveform_outputs.get_shape().as_list()
+        #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
+        #print waveform_outputs
 
-    with tf.name_scope('waveform2_rnn'):
-        waveform2_cell = tf.contrib.rnn.LSTMCell(waveform_dim,name='waveform2_cell')
-        waveform2_outputs, s2 = tf.nn.dynamic_rnn(cell=waveform2_cell, inputs=waveform2, dtype=tf.float32)
-        waveform2_outputs = tf.reshape(waveform2_outputs,[batch_size,-1,waveform_dim])
+    with tf.variable_scope('waveform2_rnn'):
+        with tf.name_scope('waveform2_rnn'):
+            waveform2_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
+            waveform2_outputs, s2 = tf.nn.dynamic_rnn(cell=waveform2_cell, inputs=waveform2, dtype=tf.float32)
+            waveform2_outputs = tf.reshape(waveform2_outputs,[batch_size,-1,waveform_dim])
 
 
     #auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
@@ -523,14 +526,15 @@ if __name__ == "__main__":
             T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad, H2_pad = pad_data(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                     vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds),vectorize(H2_tr,inds))
-            #print H_pad.shape
+            print H_pad.shape
             #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
             feed_dict={waveform: H_pad, waveform2: H2_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-            #'''
+            summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+            epoch_loss += loss
+            '''
             try:
                 summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
                 epoch_loss += loss

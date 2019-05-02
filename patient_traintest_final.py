@@ -90,6 +90,7 @@ def get_encounter(values):
     waveform = np.column_stack((np.mean(signal.reshape(-1,125), axis=1), np.std(signal.reshape(-1,125), axis=1)))
     waveform = np.nan_to_num(waveform)
     waveform = np.pad(waveform,((start_row,(len(grid_times)*60*60)-end_row),(0,0)),'constant')
+    #print waveform.shape
     #print("done padding")
     if index2!=-1:
         #wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
@@ -108,8 +109,9 @@ def get_encounter(values):
         waveform2 = np.column_stack((np.mean(signal.reshape(-1,125), axis=1), np.std(signal.reshape(-1,125), axis=1)))
         waveform2 = np.nan_to_num(waveform2)
         waveform2 = np.pad(waveform2,((start_row,(len(grid_times)*60*60)-end_row),(0,0)),'constant')
+        #print waveform2.shape
     else:
-        waveform2 = np.empty((int((endtime-starttime).total_seconds()),2))
+        waveform2 = np.zeros((int((endtime-starttime).total_seconds()),2))
     baseline = baseline.fillna(0)
     baseline_i = baseline.iloc[0].to_list()
     try:
@@ -143,7 +145,7 @@ def prep_mimic(train,fold):
         sub_stay.append((sub,stay,date,ind,ind2))
     print("ABP present in %s patients"%count)
     #sub_stay = sub_stay[:30]
-    print sub_stay
+    #print sub_stay
     tot = len(sub_stay)
     #sub_stay = sub_stay[:(tot/5)*5]
     #print sub_stay
