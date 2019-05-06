@@ -144,7 +144,7 @@ def prep_mimic(train,fold):
             ind2 = -1
         sub_stay.append((sub,stay,date,ind,ind2))
     print("ABP present in %s patients"%count)
-    #sub_stay = sub_stay[:30]
+    sub_stay = sub_stay[:30]
     #print sub_stay
     tot = len(sub_stay)
     #sub_stay = sub_stay[:(tot/5)*5]

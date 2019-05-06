@@ -512,11 +512,15 @@ if __name__ == "__main__":
     ##### Main training loop
     saver = tf.train.Saver(max_to_keep = 20)
 
+    pred_probs = []
     epoch_loss = 0.0
     total_batches = 0
-    for i in range(training_iters):
+    i = 0
+    #for i in range(training_iters):
+    while epoch_loss>=10.0 or total_batches==0:
         #train
         epoch_start = time()
+        epoch_loss = 0.0
         print("Starting epoch "+"{:d}".format(i))
         perm = rs.permutation(Ntr)
         batch = 0
@@ -533,7 +537,7 @@ if __name__ == "__main__":
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
             summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-            epoch_loss += loss
+            epoch_loss += loss_
             '''
             try:
                 summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
@@ -556,7 +560,7 @@ if __name__ == "__main__":
                 #print("Testing")
                 epoch_loss = epoch_loss/test_freq
                 print("The average loss in the epoch is:%s"%epoch_loss)
-                epoch_loss = 0.0
+                #epoch_loss = 0.0
                 test_t = time()
                 acc = 0.0
                 auc = 0.0
@@ -594,7 +598,8 @@ if __name__ == "__main__":
                 te_prc = average_precision_score(labels_te, pred_probs)
                 #auc = auc/no_iters
                 #prc = prc/no_iters
-                pickle.dump(pred_probs,open('hierarchical_pred_probs_'+str(args.fold)+'.pickle','w'))
+                #pickle.dump(pred_probs,open('hierarchical_pred_probs_'+str(args.fold)+'.pickle','w'))
+
                 print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
                       "{:.2f}".format(time()-test_t)+\
                       ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
@@ -606,7 +611,8 @@ if __name__ == "__main__":
                 saver.save(sess, "HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
         print("Finishing epoch "+"{:d}".format(i)+", took "+\
               "{:.3f}".format(time()-epoch_start))
-
+        i += 1
         ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
         ### Should converge reasonably quickly on this toy example with these settings in a few epochs
+    print pred_probs
     print te_auc
