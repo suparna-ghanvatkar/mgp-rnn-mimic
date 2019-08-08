@@ -28,7 +28,7 @@ from hierarchical_simulations import *
 from patient_traintest_final import *
 #from patient_hierar_prep import *
 from tensorflow.python import debug as tf_debug
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 #####
 ##### Tensorflow functions
@@ -159,11 +159,9 @@ def get_GP_samples(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,
             padded_GPdraws_medcovs = tf.concat([padded_GP_draws,tiled_medcovs],2)
             waves = tf.slice(waveform_outputs,[i,0,0],[1,-1,-1])
             tiled_waves = tf.tile(waves,[n_mc_smps,1,1])
-            waves2 = tf.slice(waveform2_outputs,[i,0,0],[1,-1,-1])
-            tiled_waves2 = tf.tile(waves2,[n_mc_smps,1,1])
             #printop = tf.Print(tiled_waves,[tf.shape(padded_GPdraws_medcovs), tf.shape(tiled_waves)],"medcovs and waveform shape:",-1,100)
             #with tf.control_dependencies([printop]):
-            padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves,tiled_waves2],2)
+            padded_GPdraws_medcovs_waves = tf.concat([padded_GPdraws_medcovs,tiled_waves],2)
             Z = tf.concat([Z,padded_GPdraws_medcovs_waves],0)
 
         return i+1,Z
@@ -267,6 +265,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     #parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
     parser.add_argument('sim', type=str, help='prevsim/sim/data/prevdata')
+    parser.add_argument('mode', type=str, help='trainonly/trainval/test')
     parser.add_argument('fold',type=int,help='fold number')
     parser.add_argument('-lr',type=float, help='lr value')
     parser.add_argument("-l2_penalty",type=float)
@@ -279,6 +278,7 @@ if __name__ == "__main__":
     #parser.add_argument("-wave_layers",type=float)
     parser.add_argument('--debug', dest='debug')
     args = parser.parse_args()
+    mode = args.mode
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
@@ -291,11 +291,19 @@ if __name__ == "__main__":
         values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
     elif args.sim=="data":
         #'''
-        (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
-        values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr, H2_tr) = prep_mimic('train',args.fold)
-        (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-        values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te, H2_te) = prep_mimic('test',args.fold)
-        num_enc = len(num_obs_times_tr)
+        if mode=="trainonly":
+            (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+            values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_mimic('train',args.fold)
+            num_enc = len(num_obs_times_tr)
+        elif mode=="trainval":
+            (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
+            values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_mimic('train',args.fold)
+            (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+            values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('val',args.fold)
+            num_enc = len(num_obs_times_tr)
+        else:
+            (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
+            values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('test',args.fold)
         '''
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_mimic('train',args.fold)
@@ -330,7 +338,6 @@ if __name__ == "__main__":
         FLAGS.epsilon = args.epsilon
     #if args.wave_layers:
     #    FLAGS.wave_layers = args.wave_layers
-
     '''
     train_test_perm = rs.permutation(N_tot)
     #train_test_perm = range(N_tot)
@@ -362,13 +369,17 @@ if __name__ == "__main__":
     rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
     H_tr = [high_freq[i] for i in tr_ind]; H_te = [high_freq[i] for i in te_ind]
-    '''
-    Ntr = len(covs_tr)
-    Nte = len(covs_te)
-    print("Train/test split : %s-%s"%(Ntr,Nte))
+    #'''
+    if mode=="trainonly":
+        Ntr = len(covs_tr)
+    elif mode=="trainval":
+        Ntr = len(covs_tr)
+        Nte = len(covs_te)
+    else:
+        Nte = len(covs_te)
+    #print("Train/test split : %s-%s"%(Ntr,Nte))
     print("data fully setup!")
-    print("test labels are:%s"%labels_te)
-
+    #print("test labels are:%s"%labels_te)
     sys.stdout.flush()
 
     #####
@@ -381,7 +392,8 @@ if __name__ == "__main__":
     #TODO: add dropout regularization
     training_iters = int(FLAGS.epochs) #num epochs
     batch_size = int(FLAGS.batch) #NOTE may want to play around with this
-    test_freq = Ntr/batch_size #eval on test set after this many batches
+    if mode=="trainval" or mode=="trainonly":
+        test_freq = Ntr/batch_size #eval on test set after this many batches
 
     # Network Parameters
     waveform_dim = 10
@@ -389,7 +401,7 @@ if __name__ == "__main__":
     #wave_layers = int(FLAGS.wave_layers)
     n_layers = int(FLAGS.n_layers) # number of layers of stacked LSTMs
     n_classes = 2 #binary outcome
-    input_dim = M+n_meds+n_covs+2*waveform_dim #dimensionality of input sequence.
+    input_dim = M+n_meds+n_covs+waveform_dim #dimensionality of input sequence.
     n_mc_smps = 25
 
     # Create graph
@@ -399,53 +411,62 @@ if __name__ == "__main__":
     sess = tf.Session(config=config)
     if args.debug:
         sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-    ##### tf Graph - inputs
+    #Initializing the saver
+    saver = tf.train.Saver(max_to_keep = 20)
+    train_writer = tf.summary.FileWriter('tensorboard_icis/hierarchical/train/'+str(args.fold),sess.graph)
+    if not os.path.exists('tensorboard_icis'):
+        os.makedirs('tensorboard_icis')
+    test_writer = tf.summary.FileWriter('tensorboard_icis/hierarchical/test/'+str(args.fold))
 
-    #observed values, times, inducing times; padded to longest in the batch
-    Y = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
-    T = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
-    ind_kf = tf.placeholder(tf.int32, [None,None]) #index tasks in Y vector
-    ind_kt = tf.placeholder(tf.int32, [None,None]) #index inputs in Y vector
-    X = tf.placeholder("float", [None,None]) #grid points. batchsize x batch_maxgridlen
-    med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
+    if mode=="test" or mode=="trainval":
+        T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te, H_pad_te = pad_data(
+            times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te)
 
-    O = tf.placeholder(tf.int32, [None]) #labels. input is NOT as one-hot encoding; convert at each iter
-    num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
-    num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
-    num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
+    if mode!="test":
+        ##### tf Graph - inputs
+        #observed values, times, inducing times; padded to longest in the batch
+        Y = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
+        T = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
+        ind_kf = tf.placeholder(tf.int32, [None,None]) #index tasks in Y vector
+        ind_kt = tf.placeholder(tf.int32, [None,None]) #index inputs in Y vector
+        X = tf.placeholder("float", [None,None]) #grid points. batchsize x batch_maxgridlen
+        med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
 
-    waveform = tf.placeholder("float",[None,None,3600*2])
-    waveform2 = tf.placeholder("float",[None,None,3600*2])
+        O = tf.placeholder(tf.int32, [None]) #labels. input is NOT as one-hot encoding; convert at each iter
+        num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
+        num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
+        num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
 
-    N = tf.shape(Y)[0]
+        waveform = tf.placeholder("float",[None,None,3600*2])
 
-    #also make O one-hot encoding, for the loss function
-    O_dupe_onehot = tf.one_hot(tf.reshape(tf.tile(tf.expand_dims(O,1),[1,n_mc_smps]),[N*n_mc_smps]),n_classes)
+        N = tf.shape(Y)[0]
 
-    ##### tf Graph - variables to learn
+        #also make O one-hot encoding, for the loss function
+        O_dupe_onehot = tf.one_hot(tf.reshape(tf.tile(tf.expand_dims(O,1),[1,n_mc_smps]),[N*n_mc_smps]),n_classes)
 
-    ### GP parameters (unconstrained)
+        ##### tf Graph - variables to learn
 
-    #in fully separable case all labs share same time-covariance
-    log_length = tf.Variable(tf.random_normal([1],mean=1,stddev=0.1),name="GP-log-length")
-    length = tf.exp(log_length)
+        ### GP parameters (unconstrained)
 
-    #different noise level of each lab
-    log_noises = tf.Variable(tf.random_normal([M],mean=-2,stddev=0.1),name="GP-log-noises")
-    noises = tf.exp(log_noises)
+        #in fully separable case all labs share same time-covariance
+        log_length = tf.Variable(tf.random_normal([1],mean=1,stddev=0.1),name="GP-log-length")
+        length = tf.exp(log_length)
 
-    #init cov between labs
-    L_f_init = tf.Variable(tf.eye(M),name="GP-Lf")
-    Lf = tf.matrix_band_part(L_f_init,-1,0)
-    Kf = tf.matmul(Lf,tf.transpose(Lf))
+        #different noise level of each lab
+        log_noises = tf.Variable(tf.random_normal([M],mean=-2,stddev=0.1),name="GP-log-noises")
+        noises = tf.exp(log_noises)
 
-    ### RNN params
+        #init cov between labs
+        L_f_init = tf.Variable(tf.eye(M),name="GP-Lf")
+        Lf = tf.matrix_band_part(L_f_init,-1,0)
+        Kf = tf.matmul(Lf,tf.transpose(Lf))
 
-    # Create network
-    #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
-    #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
+        ### RNN params
 
-    with tf.variable_scope('waveform_rnn'):
+        # Create network
+        #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
+        #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
+
         with tf.name_scope('waveform_rnn'):
             waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
             #stacked_waveform_cell = tf.contrib.rnn.MultiRNNCell([waveform_cell for _ in range(wave_layers)])
@@ -456,163 +477,179 @@ if __name__ == "__main__":
         #wshape = waveform_outputs.get_shape().as_list()
         #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
         #print waveform_outputs
+        #auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
+        stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
 
-    with tf.variable_scope('waveform2_rnn'):
-        with tf.name_scope('waveform2_rnn'):
-            waveform2_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
-            waveform2_outputs, s2 = tf.nn.dynamic_rnn(cell=waveform2_cell, inputs=waveform2, dtype=tf.float32)
-            waveform2_outputs = tf.reshape(waveform2_outputs,[batch_size,-1,waveform_dim])
+        # Weights at the last layer given deep LSTM output
+        out_weights = tf.Variable(tf.random_normal([n_hidden, n_classes],stddev=0.1),name="Softmax/W")
+        out_biases = tf.Variable(tf.random_normal([n_classes],stddev=0.1),name="Softmax/b")
+
+        ##### Get predictions and feed into optimization
+        preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
+        probs,accuracy = get_probs_and_accuracy(preds,O)
+        tf.summary.scalar('accuracy',accuracy)
+        # Define optimization problem
+        loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
+        #loss_wave = tf.reduce_sum(tf.square(tf.get_variable('aux_output')))
+        with tf.variable_scope("",reuse=True):
+            loss_reg = L2_penalty*tf.reduce_sum(tf.square(out_weights))
+            for i in range(n_layers):
+                loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
+        loss = loss_fit + loss_reg #+ loss_wave
+        train_op = tf.train.AdamOptimizer(learning_rate,FLAGS.beta1,FLAGS.beta2,FLAGS.epsilon).minimize(loss)
+        tf.summary.scalar('loss',loss)
+
+        #Create a visualizer object
+        merged = tf.summary.merge_all()
+        ##### Initialize globals and get ready to start!
+        sess.run(tf.global_variables_initializer())
+        print("Graph setup!")
+
+        #setup minibatch indices
+        #print Ntr
+        #print batch_size
+        starts = np.arange(0,Ntr,batch_size)
+        ends = np.arange(batch_size,Ntr+1,batch_size)
+        #print ends
+        if ends[-1]<Ntr:
+            ends = np.append(ends,Ntr)
+        num_batches = len(ends)
 
 
-    #auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
-    stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
-
-    # Weights at the last layer given deep LSTM output
-    out_weights = tf.Variable(tf.random_normal([n_hidden, n_classes],stddev=0.1),name="Softmax/W")
-    out_biases = tf.Variable(tf.random_normal([n_classes],stddev=0.1),name="Softmax/b")
-
-    ##### Get predictions and feed into optimization
-    preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
-    probs,accuracy = get_probs_and_accuracy(preds,O)
-    tf.summary.scalar('accuracy',accuracy)
-    # Define optimization problem
-    loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
-    #loss_wave = tf.reduce_sum(tf.square(tf.get_variable('aux_output')))
-    with tf.variable_scope("",reuse=True):
-        loss_reg = L2_penalty*tf.reduce_sum(tf.square(out_weights))
-        for i in range(n_layers):
-            loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
-    loss = loss_fit + loss_reg #+ loss_wave
-    train_op = tf.train.AdamOptimizer(learning_rate,FLAGS.beta1,FLAGS.beta2,FLAGS.epsilon).minimize(loss)
-    tf.summary.scalar('loss',loss)
-
-    #Create a visualizer object
-    merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter('tensorboard/hierarchical/train/'+str(args.fold),sess.graph)
-    if not os.path.exists('tensorboard'):
-        os.makedirs('tensorboard')
-    test_writer = tf.summary.FileWriter('tensorboard/hierarchical/test/'+str(args.fold))
-    ##### Initialize globals and get ready to start!
-    sess.run(tf.global_variables_initializer())
-    print("Graph setup!")
-
-    #setup minibatch indices
-    #print Ntr
-    #print batch_size
-    starts = np.arange(0,Ntr,batch_size)
-    ends = np.arange(batch_size,Ntr+1,batch_size)
-    #print ends
-    if ends[-1]<Ntr:
-        ends = np.append(ends,Ntr)
-    num_batches = len(ends)
-
-    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te, H_pad_te, H2_pad_te = pad_data(
-                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te,H2_te)
-
-    ##### Main training loop
-    saver = tf.train.Saver(max_to_keep = 20)
-
-    pred_probs = []
-    epoch_loss = 0.0
-    total_batches = 0
-    i = 0
-    #for i in range(training_iters):
-    while epoch_loss>=10.0 or total_batches==0:
-        #train
-        epoch_start = time()
+        ##### Main training loop
+        checkpoint_freq = 5*test_freq
         epoch_loss = 0.0
-        print("Starting epoch "+"{:d}".format(i))
-        perm = rs.permutation(Ntr)
-        batch = 0
-        for s,e in zip(starts,ends):
-            batch_start = time()
-            inds = perm[s:e]
-            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad, H2_pad = pad_data(
-                    vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
-                    vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds),vectorize(H2_tr,inds))
-            print H_pad.shape
-            #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
-            feed_dict={waveform: H_pad, waveform2: H2_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
-               med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
-               num_obs_values:vectorize(num_obs_values_tr,inds),
-               num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-            epoch_loss += loss_
-            '''
-            try:
-                summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-                epoch_loss += loss
-                train_writer.add_summary(summary,i)
-            except:
-                print "problem in "+str(batch)
-                batch+=1; total_batches+=1
-                continue
-            #'''
-            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                  ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
-            sys.stdout.flush()
-            batch += 1; total_batches += 1
-
-            if total_batches % test_freq == 0: #Check val set every so often for early stopping
-                #TODO: may also want to check validation performance at additional X hours back
-                #from the event time, as well as just checking performance at terminal time
-                #on the val set, so you know if it generalizes well further back in time as well
-                #print("Testing")
-                epoch_loss = epoch_loss/test_freq
-                print("The average loss in the epoch is:%s"%epoch_loss)
-                #epoch_loss = 0.0
-                test_t = time()
-                acc = 0.0
-                auc = 0.0
-                prc = 0.0
-                no_iters = int(Nte/batch_size)
-                start_i = 0
-                pred_probs = []
-                for j in range(no_iters):
-                    end_i = start_i+batch_size
-                    H_pad_bte = H_pad_te[start_i:end_i]
-                    H2_pad_bte = H2_pad_te[start_i:end_i]
-                    Y_pad_bte = Y_pad_te[start_i:end_i]
-                    T_pad_bte = T_pad_te[start_i:end_i]
-                    ind_kf_pad_bte = ind_kf_pad_te[start_i:end_i]
-                    ind_kt_pad_bte = ind_kt_pad_te[start_i:end_i]
-                    X_pad_bte = X_pad_te[start_i:end_i]
-                    meds_cov_pad_bte = meds_cov_pad_te[start_i:end_i]
-                    num_obs_times_bte = num_obs_times_te[start_i:end_i]
-                    num_obs_values_bte = num_obs_values_te[start_i:end_i]
-                    num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
-                    labels_bte = labels_te[start_i:end_i]
-                    feed_dict={waveform:H_pad_bte, waveform2:H2_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
-                       med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
-                       num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
-                    summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
-                    test_writer.add_summary(summary,i)
-                    #print "Te probs:"+str(te_probs)
-                    pred_probs.extend(te_probs)
-                    acc += te_acc
-                    start_i = end_i
-                    #auc += te_auc
-                    #prc += te_prc
-                acc = acc/no_iters
-                te_auc = roc_auc_score(labels_te, pred_probs)
-                te_prc = average_precision_score(labels_te, pred_probs)
-                #auc = auc/no_iters
-                #prc = prc/no_iters
-                #pickle.dump(pred_probs,open('hierarchical_pred_probs_'+str(args.fold)+'.pickle','w'))
-
-                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                      "{:.2f}".format(time()-test_t)+\
-                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                      " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
-                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+        total_batches = 0
+        i = 0
+        #for i in range(training_iters):
+        while epoch_loss>=10.0 or total_batches==0:
+            #train
+            epoch_start = time()
+            print("Starting epoch "+"{:d}".format(i))
+            perm = rs.permutation(Ntr)
+            batch = 0
+            for s,e in zip(starts,ends):
+                batch_start = time()
+                inds = perm[s:e]
+                T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
+                        vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
+                        vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
+                #print H_pad.shape
+                #print T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad
+                feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
+                num_obs_values:vectorize(num_obs_values_tr,inds),
+                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
+                #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+                #'''
+                try:
+                    summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+                    epoch_loss += loss_
+                    train_writer.add_summary(summary,i)
+                except:
+                    print "problem in "+str(batch)
+                    batch+=1; total_batches+=1
+                    continue
+                #'''
+                print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
                 sys.stdout.flush()
+                batch += 1; total_batches += 1
 
-                #create a folder and put model checkpoints there
-                saver.save(sess, "HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
-        print("Finishing epoch "+"{:d}".format(i)+", took "+\
-              "{:.3f}".format(time()-epoch_start))
-        i += 1
-        ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
-        ### Should converge reasonably quickly on this toy example with these settings in a few epochs
-    print pred_probs
-    print te_auc
+                if mode=="trainval":
+                    if total_batches % test_freq == 0: #Check val set every so often for early stopping
+                        #TODO: may also want to check validation performance at additional X hours back
+                        #from the event time, as well as just checking performance at terminal time
+                        #on the val set, so you know if it generalizes well further back in time as well
+                        #print("Testing")
+                        epoch_loss = epoch_loss/test_freq
+                        print("The average loss in the epoch is:%s"%epoch_loss)
+                        #epoch_loss = 0.0
+                        test_t = time()
+                        acc = 0.0
+                        auc = 0.0
+                        prc = 0.0
+                        no_iters = int(Nte/batch_size)
+                        start_i = 0
+                        pred_probs = []
+                        for j in range(no_iters):
+                            end_i = start_i+batch_size
+                            H_pad_bte = H_pad_te[start_i:end_i]
+                            Y_pad_bte = Y_pad_te[start_i:end_i]
+                            T_pad_bte = T_pad_te[start_i:end_i]
+                            ind_kf_pad_bte = ind_kf_pad_te[start_i:end_i]
+                            ind_kt_pad_bte = ind_kt_pad_te[start_i:end_i]
+                            X_pad_bte = X_pad_te[start_i:end_i]
+                            meds_cov_pad_bte = meds_cov_pad_te[start_i:end_i]
+                            num_obs_times_bte = num_obs_times_te[start_i:end_i]
+                            num_obs_values_bte = num_obs_values_te[start_i:end_i]
+                            num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
+                            labels_bte = labels_te[start_i:end_i]
+                            feed_dict={waveform:H_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
+                            med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
+                            num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
+                            summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
+                            test_writer.add_summary(summary,i)
+                            #print "Te probs:"+str(te_probs)
+                            pred_probs.extend(te_probs)
+                            acc += te_acc
+                            start_i = end_i
+                            #auc += te_auc
+                            #prc += te_prc
+                        acc = acc/no_iters
+                        te_auc = roc_auc_score(labels_te, pred_probs)
+                        te_prc = average_precision_score(labels_te, pred_probs)
+                        print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                            "{:.2f}".format(time()-test_t)+\
+                            ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                            " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
+                            "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                        sys.stdout.flush()
+
+                    #create a folder and put model checkpoints there
+            if mode=="trainonly":
+                epoch_loss= epoch_loss/test_freq
+            i += 1
+            if total_batches%checkpoint_freq==0:
+                saver.save(sess, "/data/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
+            print("Finishing epoch "+"{:d}".format(i)+", took "+\
+                  "{:.3f}".format(time()-epoch_start)+" with loss:"+\
+                  "{:.3f}".format(epoch_loss))
+
+            ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
+            ### Should converge reasonably quickly on this toy example with these settings in a few epochs
+
+    if mode=="test":
+        saver.restore(sess,"/data/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/")
+        print("Model restored")
+        test_t = time()
+        acc = 0.0
+        auc = 0.0
+        prc = 0.0
+        no_iters = int(Nte/batch_size)
+        start_i = 0
+        pred_probs = []
+        for j in range(no_iters):
+            end_i = start_i+batch_size
+            H_pad_bte = H_pad_te[start_i:end_i]
+            Y_pad_bte = Y_pad_te[start_i:end_i]
+            T_pad_bte = T_pad_te[start_i:end_i]
+            ind_kf_pad_bte = ind_kf_pad_te[start_i:end_i]
+            ind_kt_pad_bte = ind_kt_pad_te[start_i:end_i]
+            X_pad_bte = X_pad_te[start_i:end_i]
+            meds_cov_pad_bte = meds_cov_pad_te[start_i:end_i]
+            num_obs_times_bte = num_obs_times_te[start_i:end_i]
+            num_obs_values_bte = num_obs_values_te[start_i:end_i]
+            num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
+            labels_bte = labels_te[start_i:end_i]
+            feed_dict={waveform:H_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
+            med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
+            num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
+            summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
+            test_writer.add_summary(summary,i)
+            #print "Te probs:"+str(te_probs)
+            pred_probs.extend(te_probs)
+            acc += te_acc
+            start_i = end_i
+        pickle.dump(labels_te,open('icis_revision/hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(pred_probs, open('icis_revision/hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))

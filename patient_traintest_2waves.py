@@ -19,7 +19,7 @@ glascow_motor = {}
 glascow_total = {}
 glascow_verbal = {}
 def get_encounter(values):
-    sub,stay_no,date,index= values
+    sub,stay_no,date,index,index2 = values
     Y_i = []
     ind_kf_i = []
     ind_kt_i = []
@@ -92,6 +92,26 @@ def get_encounter(values):
     waveform = np.pad(waveform,((start_row,(len(grid_times)*60*60)-end_row),(0,0)),'constant')
     #print waveform.shape
     #print("done padding")
+    if index2!=-1:
+        #wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
+        #print wavepath+subpathstr
+        signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index2])
+        #starttime = starttime[stay_no]
+        #endtime = starttime+datetime.timedelta(hours=24)
+        base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
+        start_row = int(ceil((base_time-starttime).total_seconds()))
+        signal = np.pad(signal,((0,(int(ceil(len(signal)/125.0)*125))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
+        end_row = start_row+(signal.shape[0]/125)
+        last_row = 24*60*60
+        if last_row<end_row:
+            end_row = last_row
+            signal = signal[:(last_row-start_row)*125]
+        waveform2 = np.column_stack((np.mean(signal.reshape(-1,125), axis=1), np.std(signal.reshape(-1,125), axis=1)))
+        waveform2 = np.nan_to_num(waveform2)
+        waveform2 = np.pad(waveform2,((start_row,(len(grid_times)*60*60)-end_row),(0,0)),'constant')
+        #print waveform2.shape
+    else:
+        waveform2 = np.zeros((int((endtime-starttime).total_seconds()),2))
     baseline = baseline.fillna(0)
     baseline_i = baseline.iloc[0].to_list()
     try:
@@ -99,7 +119,7 @@ def get_encounter(values):
         meds_on_grid_i = medicines.to_numpy()
     except:
         meds_on_grid_i = np.zeros((24,5))
-    return T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label,waveform
+    return T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label,waveform,waveform2
 
 def prep_mimic(train,fold):
     '''
@@ -112,8 +132,20 @@ def prep_mimic(train,fold):
     sub_stays_included = []
     '''
     #sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
-    sub_stay = pickle.load(open('icis_revision/filtered_substays_'+train+'_fold'+str(fold)+'.pickle','rb'))
-    subs_stay = sub_stay[:10]
+    sub_stay_ecg = pickle.load(open('balanced_data_'+train+'_'+str(fold)+'.pickle','r'))
+    abp_ind = pickle.load(open('abp_index.pickle','r'))
+    sub_stay = []
+    count = 0
+    for (sub,stay,date,ind) in sub_stay_ecg:
+        try:
+            ind2 = abp_ind[(sub,date)]
+            count +=1
+        except:
+            ind2 = -1
+        sub_stay.append((sub,stay,date,ind,ind2))
+    print("ABP present in %s patients"%count)
+    sub_stay = sub_stay[:30]
+    #print sub_stay
     tot = len(sub_stay)
     #sub_stay = sub_stay[:(tot/5)*5]
     #print sub_stay
@@ -136,6 +168,7 @@ def prep_mimic(train,fold):
     ind_kf = []
     ind_kt = []
     waveforms = []
+    waveforms2 = []
 
     Ethnicity = {}
     eth_count = 0
@@ -146,16 +179,17 @@ def prep_mimic(train,fold):
     breakflag = False
     stime = time()
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        #for sub,stay_no,date,index in sub_stay:
+        #for sub,stay_no,date,index,ind2 in sub_stay:
         results = executor.map(get_encounter, sub_stay, chunksize=3)
         for stayinfo,values in zip(sub_stay,results):
-            sub,stay_no,date,index = stayinfo
+            sub,stay_no,date,index,ind2 = stayinfo
             #values = get_encounter((sub,stay_no,date,index,ind2))
             start_time = time()
             #print("Preparing subject %s"%str(sub))
-            T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label,waveform= values
+            T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label,waveform,waveform2 = values
             rnn_grid_times.append(grid_times)
             waveforms.append(waveform)
+            waveforms2.append(waveform2)
             end_times.append(len(rnn_grid_times[-1])-1)
             num_obs_times.append(len(T_i))
             num_obs_values.append(len(Y_i))
@@ -211,7 +245,7 @@ def prep_mimic(train,fold):
     pickle.dump(baseline_covs, open('baseline_covs_hierarchical_'+train+'_mimic.pickle','w'))
     #pickle.dump(waveforms, open('waveforms_hierarchical_'+train+'_mimic.pickle','w'))
     #'''
-    return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs,waveforms)
+    return (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs,waveforms,waveforms2)
 
 if __name__=="__main__":
     prep_mimic('train',0)
