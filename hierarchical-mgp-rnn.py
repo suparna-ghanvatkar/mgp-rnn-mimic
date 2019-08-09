@@ -28,7 +28,7 @@ from hierarchical_simulations import *
 from patient_traintest_final import *
 #from patient_hierar_prep import *
 from tensorflow.python import debug as tf_debug
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 #####
 ##### Tensorflow functions
@@ -247,7 +247,7 @@ flags.DEFINE_float("epochs",140.0,"")
 flags.DEFINE_float("batch",30.0,"")
 flags.DEFINE_float("beta1",0.9,"")
 flags.DEFINE_float("beta2",0.999,"")
-flags.DEFINE_float("epsilon",1e-8,"")
+flags.DEFINE_float("epsilon",0.5,"")
 '''
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
@@ -411,100 +411,100 @@ if __name__ == "__main__":
     sess = tf.Session(config=config)
     if args.debug:
         sess = tf_debug.LocalCLIDebugWrapperSession(sess)
-    #Initializing the saver
+    if mode=="test" or mode=="trainval":
+        T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te, H_pad_te = pad_data(
+            times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te)
+
+    ##### tf Graph - inputs
+    #observed values, times, inducing times; padded to longest in the batch
+    Y = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
+    T = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
+    ind_kf = tf.placeholder(tf.int32, [None,None]) #index tasks in Y vector
+    ind_kt = tf.placeholder(tf.int32, [None,None]) #index inputs in Y vector
+    X = tf.placeholder("float", [None,None]) #grid points. batchsize x batch_maxgridlen
+    med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
+
+    O = tf.placeholder(tf.int32, [None]) #labels. input is NOT as one-hot encoding; convert at each iter
+    num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
+    num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
+    num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
+
+    waveform = tf.placeholder("float",[None,None,3600*2])
+
+    N = tf.shape(Y)[0]
+
+    #also make O one-hot encoding, for the loss function
+    O_dupe_onehot = tf.one_hot(tf.reshape(tf.tile(tf.expand_dims(O,1),[1,n_mc_smps]),[N*n_mc_smps]),n_classes)
+
+    ##### tf Graph - variables to learn
+
+    ### GP parameters (unconstrained)
+
+    #in fully separable case all labs share same time-covariance
+    log_length = tf.Variable(tf.random_normal([1],mean=1,stddev=0.1),name="GP-log-length")
+    length = tf.exp(log_length)
+
+    #different noise level of each lab
+    log_noises = tf.Variable(tf.random_normal([M],mean=-2,stddev=0.1),name="GP-log-noises")
+    noises = tf.exp(log_noises)
+
+    #init cov between labs
+    L_f_init = tf.Variable(tf.eye(M),name="GP-Lf")
+    Lf = tf.matrix_band_part(L_f_init,-1,0)
+    Kf = tf.matmul(Lf,tf.transpose(Lf))
+
+    ### RNN params
+
+    # Create network
+    #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
+    #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
+
+    with tf.name_scope('waveform_rnn'):
+        waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
+        #stacked_waveform_cell = tf.contrib.rnn.MultiRNNCell([waveform_cell for _ in range(wave_layers)])
+        #initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
+        #waveform_outputs = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(waveform_dim, input_shape=(None,3600,2), output_shape=(None,waveform_dim)))(waveform)
+        waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
+        waveform_outputs = tf.reshape(waveform_outputs,[batch_size,-1,waveform_dim])
+    #wshape = waveform_outputs.get_shape().as_list()
+    #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
+    #print waveform_outputs
+    #auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
+    stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
+
+    # Weights at the last layer given deep LSTM output
+    out_weights = tf.Variable(tf.random_normal([n_hidden, n_classes],stddev=0.1),name="Softmax/W")
+    out_biases = tf.Variable(tf.random_normal([n_classes],stddev=0.1),name="Softmax/b")
+
+    ##### Get predictions and feed into optimization
+    preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
+    probs,accuracy = get_probs_and_accuracy(preds,O)
+    tf.summary.scalar('accuracy',accuracy)
+    # Define optimization problem
+    loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
+    #loss_wave = tf.reduce_sum(tf.square(tf.get_variable('aux_output')))
+    with tf.variable_scope("",reuse=True):
+        loss_reg = L2_penalty*tf.reduce_sum(tf.square(out_weights))
+        for i in range(n_layers):
+            loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
+    loss = loss_fit + loss_reg #+ loss_wave
+    train_op = tf.train.AdamOptimizer(learning_rate,FLAGS.beta1,FLAGS.beta2,FLAGS.epsilon).minimize(loss)
+    tf.summary.scalar('loss',loss)
+
+    #Create a visualizer object
+    merged = tf.summary.merge_all()
+    ##### Initialize globals and get ready to start!
+    sess.run(tf.global_variables_initializer())
+    print("Graph setup!")
     saver = tf.train.Saver(max_to_keep = 20)
+    #Initializing the saver
     train_writer = tf.summary.FileWriter('tensorboard_icis/hierarchical/train/'+str(args.fold),sess.graph)
     if not os.path.exists('tensorboard_icis'):
         os.makedirs('tensorboard_icis')
     test_writer = tf.summary.FileWriter('tensorboard_icis/hierarchical/test/'+str(args.fold))
 
-    if mode=="test" or mode=="trainval":
-        T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te, H_pad_te = pad_data(
-            times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te,H_te)
 
     if mode!="test":
-        ##### tf Graph - inputs
-        #observed values, times, inducing times; padded to longest in the batch
-        Y = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
-        T = tf.placeholder("float", [None,None]) #batchsize x batch_maxdata_length
-        ind_kf = tf.placeholder(tf.int32, [None,None]) #index tasks in Y vector
-        ind_kt = tf.placeholder(tf.int32, [None,None]) #index inputs in Y vector
-        X = tf.placeholder("float", [None,None]) #grid points. batchsize x batch_maxgridlen
-        med_cov_grid = tf.placeholder("float", [None,None,n_meds+n_covs]) #combine w GP smps to feed into RNN
-
-        O = tf.placeholder(tf.int32, [None]) #labels. input is NOT as one-hot encoding; convert at each iter
-        num_obs_times = tf.placeholder(tf.int32, [None]) #number of observation times per encounter
-        num_obs_values = tf.placeholder(tf.int32, [None]) #number of observation values per encounter
-        num_rnn_grid_times = tf.placeholder(tf.int32, [None]) #length of each grid to be fed into RNN in batch
-
-        waveform = tf.placeholder("float",[None,None,3600*2])
-
-        N = tf.shape(Y)[0]
-
-        #also make O one-hot encoding, for the loss function
-        O_dupe_onehot = tf.one_hot(tf.reshape(tf.tile(tf.expand_dims(O,1),[1,n_mc_smps]),[N*n_mc_smps]),n_classes)
-
-        ##### tf Graph - variables to learn
-
-        ### GP parameters (unconstrained)
-
-        #in fully separable case all labs share same time-covariance
-        log_length = tf.Variable(tf.random_normal([1],mean=1,stddev=0.1),name="GP-log-length")
-        length = tf.exp(log_length)
-
-        #different noise level of each lab
-        log_noises = tf.Variable(tf.random_normal([M],mean=-2,stddev=0.1),name="GP-log-noises")
-        noises = tf.exp(log_noises)
-
-        #init cov between labs
-        L_f_init = tf.Variable(tf.eye(M),name="GP-Lf")
-        Lf = tf.matrix_band_part(L_f_init,-1,0)
-        Kf = tf.matmul(Lf,tf.transpose(Lf))
-
-        ### RNN params
-
-        # Create network
-        #x = tf.keras.layers.Embedding(output_dim=512, input_dim=10000, input_length=100)(waveform)
-        #auxiliary_output = Dense(1, activation='sigmoid', name='aux_output')(lstm_out)
-
-        with tf.name_scope('waveform_rnn'):
-            waveform_cell = tf.contrib.rnn.LSTMCell(waveform_dim)
-            #stacked_waveform_cell = tf.contrib.rnn.MultiRNNCell([waveform_cell for _ in range(wave_layers)])
-            #initial_state = waveform_cell.zero_state(batch_size, dtype=tf.float32)
-            #waveform_outputs = tf.keras.layers.TimeDistributed(tf.keras.layers.LSTM(waveform_dim, input_shape=(None,3600,2), output_shape=(None,waveform_dim)))(waveform)
-            waveform_outputs, s = tf.nn.dynamic_rnn(cell=waveform_cell, inputs=waveform, dtype=tf.float32)
-            waveform_outputs = tf.reshape(waveform_outputs,[batch_size,-1,waveform_dim])
-        #wshape = waveform_outputs.get_shape().as_list()
-        #waveform_outputs = tf.reshape(waveform_outputs, [-1,wshape[1],1])
-        #print waveform_outputs
-        #auxiliary_out = tf.layers.dense(waveform_outputs, 1, name='aux_output')
-        stacked_lstm = tf.contrib.rnn.MultiRNNCell([tf.contrib.rnn.BasicLSTMCell(n_hidden) for _ in range(n_layers)])
-
-        # Weights at the last layer given deep LSTM output
-        out_weights = tf.Variable(tf.random_normal([n_hidden, n_classes],stddev=0.1),name="Softmax/W")
-        out_biases = tf.Variable(tf.random_normal([n_classes],stddev=0.1),name="Softmax/b")
-
-        ##### Get predictions and feed into optimization
-        preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
-        probs,accuracy = get_probs_and_accuracy(preds,O)
-        tf.summary.scalar('accuracy',accuracy)
-        # Define optimization problem
-        loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
-        #loss_wave = tf.reduce_sum(tf.square(tf.get_variable('aux_output')))
-        with tf.variable_scope("",reuse=True):
-            loss_reg = L2_penalty*tf.reduce_sum(tf.square(out_weights))
-            for i in range(n_layers):
-                loss_reg = L2_penalty+tf.reduce_sum(tf.square(tf.get_variable('rnn/multi_rnn_cell/cell_'+str(i)+'/basic_lstm_cell/kernel')))
-        loss = loss_fit + loss_reg #+ loss_wave
-        train_op = tf.train.AdamOptimizer(learning_rate,FLAGS.beta1,FLAGS.beta2,FLAGS.epsilon).minimize(loss)
-        tf.summary.scalar('loss',loss)
-
-        #Create a visualizer object
-        merged = tf.summary.merge_all()
-        ##### Initialize globals and get ready to start!
-        sess.run(tf.global_variables_initializer())
-        print("Graph setup!")
-
         #setup minibatch indices
         #print Ntr
         #print batch_size
@@ -522,7 +522,7 @@ if __name__ == "__main__":
         total_batches = 0
         i = 0
         #for i in range(training_iters):
-        while epoch_loss>=10.0 or total_batches==0:
+        while epoch_loss>=30.0 or total_batches==0:
             #train
             epoch_start = time()
             print("Starting epoch "+"{:d}".format(i))
@@ -611,7 +611,7 @@ if __name__ == "__main__":
                 epoch_loss= epoch_loss/test_freq
             i += 1
             if total_batches%checkpoint_freq==0:
-                saver.save(sess, "/data/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
+                saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
             print("Finishing epoch "+"{:d}".format(i)+", took "+\
                   "{:.3f}".format(time()-epoch_start)+" with loss:"+\
                   "{:.3f}".format(epoch_loss))
@@ -620,7 +620,9 @@ if __name__ == "__main__":
             ### Should converge reasonably quickly on this toy example with these settings in a few epochs
 
     if mode=="test":
-        saver.restore(sess,"/data/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/")
+        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/"
+        ckpt_state = tf.train.get_checkpoint_state(ckpt_dir)
+        saver.restore(sess,ckpt_state.model_checkpoint_path)
         print("Model restored")
         test_t = time()
         acc = 0.0

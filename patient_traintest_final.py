@@ -19,7 +19,7 @@ glascow_motor = {}
 glascow_total = {}
 glascow_verbal = {}
 def get_encounter(values):
-    sub,stay_no,date,index= values
+    (sub,stay_no),data_index= values
     Y_i = []
     ind_kf_i = []
     ind_kt_i = []
@@ -72,26 +72,41 @@ def get_encounter(values):
                 ind_kf_i.append(dropped_col_map[i]-1)
                 ind_kt_i.append(t)
     substr = "%06d"%(sub)
-    subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
-    wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
-    #print wavepath+subpathstr
-    signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
-    baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
     starttime = starttime[stay_no]
     endtime = starttime+datetime.timedelta(hours=24)
-    base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
-    start_row = int(ceil((base_time-starttime).total_seconds()))
-    signal = np.pad(signal,((0,(int(ceil(len(signal)/125.0)*125))-len(signal)),(0,0)), 'constant',constant_values=(np.nan))
-    end_row = start_row+(signal.shape[0]/125)
-    last_row = 24*60*60
-    if last_row<end_row:
-        end_row = last_row
-        signal = signal[:(last_row-start_row)*125]
-    waveform = np.column_stack((np.mean(signal.reshape(-1,125), axis=1), np.std(signal.reshape(-1,125), axis=1)))
+    wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
+    waveform = np.empty((24*60*60*125))
+    waveform[:] = np.nan
+    #if len(data_index)>1:
+    #    print("%s,%s"%(sub,stay_no))
+    prev_end = 0
+    prev_start = 0
+    for date,index in data_index:
+        subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
+        signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
+        base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
+        start_row = int(ceil((base_time-starttime).total_seconds())*125)
+        available_len = len(waveform)-start_row
+        #if prev_end>start_row:
+        #    if fabs(start_row-prev_start)>37500:    #i.e. if the gap between two recordings start time is greater than 5 minuets
+        #        print("Problem in: %s,%s and has overlap of %s minutes"%(sub, stay_no,(prev_end-start_row)/(125*60)))
+        #print(available_len)
+        #if the waveform has less available length than the signal available then restrict else has no effect
+        #print(fields['sig_len'])
+        end_row = fields['sig_len']+start_row
+        #if len(data_index)>1:
+        #    print("%s,%s"%(start_row,end_row))
+        #prev_end = end_row
+        #prev_start = start_row
+        if available_len<fields['sig_len']:
+            waveform[start_row:] = signal[:available_len,0]
+        else:
+            waveform[start_row:end_row] = signal[:,0]
+    waveform = np.column_stack((np.mean(waveform.reshape(-1,125), axis=1), np.std(waveform.reshape(-1,125), axis=1)))
     waveform = np.nan_to_num(waveform)
-    waveform = np.pad(waveform,((start_row,(len(grid_times)*60*60)-end_row),(0,0)),'constant')
     #print waveform.shape
     #print("done padding")
+    baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv')
     baseline = baseline.fillna(0)
     baseline_i = baseline.iloc[0].to_list()
     try:
@@ -113,7 +128,7 @@ def prep_mimic(train,fold):
     '''
     #sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
     sub_stay = pickle.load(open('icis_revision/filtered_substays_'+train+'_fold'+str(fold)+'.pickle','rb'))
-    subs_stay = sub_stay[:10]
+    #sub_stay = sub_stay[:10]
     tot = len(sub_stay)
     #sub_stay = sub_stay[:(tot/5)*5]
     #print sub_stay
@@ -147,9 +162,9 @@ def prep_mimic(train,fold):
     stime = time()
     with concurrent.futures.ProcessPoolExecutor() as executor:
         #for sub,stay_no,date,index in sub_stay:
-        results = executor.map(get_encounter, sub_stay, chunksize=3)
+        results = executor.map(get_encounter, sub_stay)
         for stayinfo,values in zip(sub_stay,results):
-            sub,stay_no,date,index = stayinfo
+            (sub,stay_no),date_index = stayinfo
             #values = get_encounter((sub,stay_no,date,index,ind2))
             start_time = time()
             #print("Preparing subject %s"%str(sub))
