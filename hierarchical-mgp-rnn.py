@@ -28,7 +28,7 @@ from hierarchical_simulations import *
 from patient_traintest_final import *
 #from patient_hierar_prep import *
 from tensorflow.python import debug as tf_debug
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 #####
 ##### Tensorflow functions
@@ -496,7 +496,7 @@ if __name__ == "__main__":
     ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
     print("Graph setup!")
-    saver = tf.train.Saver(max_to_keep = 20)
+    saver = tf.train.Saver(max_to_keep = 30)
     #Initializing the saver
     train_writer = tf.summary.FileWriter('tensorboard_icis/hierarchical/train/'+str(args.fold),sess.graph)
     if not os.path.exists('tensorboard_icis'):
@@ -512,7 +512,7 @@ if __name__ == "__main__":
         ends = np.arange(batch_size,Ntr+1,batch_size)
         #print ends
         if ends[-1]<Ntr:
-            ends = np.append(ends,Ntr)
+            ends = np.append(ends,int(ceil((Ntr*1.0)/batch_size))*batch_size)
         num_batches = len(ends)
 
 
@@ -527,6 +527,9 @@ if __name__ == "__main__":
             epoch_start = time()
             print("Starting epoch "+"{:d}".format(i))
             perm = rs.permutation(Ntr)
+            if Ntr%batch_size!=0:
+                rem = perm[:batch_size-(Ntr%batch_size)]
+                perm = np.append(perm,rem)
             batch = 0
             for s,e in zip(starts,ends):
                 batch_start = time()
@@ -547,7 +550,7 @@ if __name__ == "__main__":
                     epoch_loss += loss_
                     train_writer.add_summary(summary,i)
                 except:
-                    print "problem in "+str(batch)
+                    print("problem in "+str(batch))
                     batch+=1; total_batches+=1
                     continue
                 #'''
@@ -569,31 +572,41 @@ if __name__ == "__main__":
                         acc = 0.0
                         auc = 0.0
                         prc = 0.0
-                        no_iters = int(Nte/batch_size)
+                        starts = np.arange(0,Nte,batch_size)
+                        ends = np.arange(batch_size,Nte+1,batch_size)
+                        perm = np.arange(Nte)
+                        no_to_pad = batch_size-(Nte%batch_size)
+                        print(no_to_pad)
+                        #print ends
+                        if ends[-1]<Nte:
+                            ends = np.append(ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
+                            rem = perm[:no_to_pad]
+                            perm = np.append(perm,rem)
+                        #print(ends)
+                        num_batches = len(ends)
+                        no_iters = int(ceil((Nte*1.0)/batch_size))
                         start_i = 0
                         pred_probs = []
-                        for j in range(no_iters):
-                            end_i = start_i+batch_size
-                            H_pad_bte = H_pad_te[start_i:end_i]
-                            Y_pad_bte = Y_pad_te[start_i:end_i]
-                            T_pad_bte = T_pad_te[start_i:end_i]
-                            ind_kf_pad_bte = ind_kf_pad_te[start_i:end_i]
-                            ind_kt_pad_bte = ind_kt_pad_te[start_i:end_i]
-                            X_pad_bte = X_pad_te[start_i:end_i]
-                            meds_cov_pad_bte = meds_cov_pad_te[start_i:end_i]
-                            num_obs_times_bte = num_obs_times_te[start_i:end_i]
-                            num_obs_values_bte = num_obs_values_te[start_i:end_i]
-                            num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
-                            labels_bte = labels_te[start_i:end_i]
-                            feed_dict={waveform:H_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
-                            med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
-                            num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
+                        print(perm)
+                        batch = 0
+                        for s,e in zip(starts,ends):
+                            batch_start = time()
+                            inds = perm[s:e]
+                            #print(inds)
+                            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
+                                    vectorize(times_te,inds),vectorize(values_te,inds),vectorize(ind_lvs_te,inds),vectorize(ind_times_te,inds),
+                                    vectorize(rnn_grid_times_te,inds),vectorize(meds_on_grid_te,inds),vectorize(covs_te,inds),vectorize(H_te,inds))
+                            #print H_pad.shape
+                            feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+                            med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_te,inds),
+                            num_obs_values:vectorize(num_obs_values_te,inds),
+                            num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
+                            #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
                             summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
                             test_writer.add_summary(summary,i)
                             #print "Te probs:"+str(te_probs)
                             pred_probs.extend(te_probs)
                             acc += te_acc
-                            start_i = end_i
                             #auc += te_auc
                             #prc += te_prc
                         acc = acc/no_iters
@@ -610,8 +623,8 @@ if __name__ == "__main__":
             if mode=="trainonly":
                 epoch_loss= epoch_loss/test_freq
             i += 1
-            if total_batches%checkpoint_freq==0:
-                saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
+            #if total_batches%checkpoint_freq==0:
+            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
             print("Finishing epoch "+"{:d}".format(i)+", took "+\
                   "{:.3f}".format(time()-epoch_start)+" with loss:"+\
                   "{:.3f}".format(epoch_loss))
@@ -628,9 +641,32 @@ if __name__ == "__main__":
         acc = 0.0
         auc = 0.0
         prc = 0.0
-        no_iters = int(Nte/batch_size)
+        starts = np.arange(0,Nte,batch_size)
+        ends = np.arange(batch_size,Nte+1,batch_size)
+        perm = np.arange(Nte)
+        no_to_pad = batch_size-(Nte%batch_size)
+        print(no_to_pad)
+        #print ends
+        if ends[-1]<Nte:
+            ends = np.append(ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
+            rem = perm[:no_to_pad]
+            perm = np.append(perm,rem)
+        #print(ends)
+        num_batches = len(ends)
+        no_iters = int(ceil((Nte*1.0)/batch_size))
         start_i = 0
         pred_probs = []
+        print(perm)
+        batch = 0
+        for s,e in zip(starts,ends):
+            batch_start = time()
+            inds = perm[s:e]
+            #print(inds)
+            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
+                    vectorize(times_te,inds),vectorize(values_te,inds),vectorize(ind_lvs_te,inds),vectorize(ind_times_te,inds),
+                    vectorize(rnn_grid_times_te,inds),vectorize(meds_on_grid_te,inds),vectorize(covs_te,inds),vectorize(H_te,inds))
+            #print H_pad.shape
+            """
         for j in range(no_iters):
             end_i = start_i+batch_size
             H_pad_bte = H_pad_te[start_i:end_i]
@@ -644,14 +680,22 @@ if __name__ == "__main__":
             num_obs_values_bte = num_obs_values_te[start_i:end_i]
             num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
             labels_bte = labels_te[start_i:end_i]
-            feed_dict={waveform:H_pad_bte, Y:Y_pad_bte,T:T_pad_bte,ind_kf:ind_kf_pad_bte,ind_kt:ind_kt_pad_bte,X:X_pad_bte,
-            med_cov_grid:meds_cov_pad_bte,num_obs_times:num_obs_times_bte,
-            num_obs_values:num_obs_values_bte,num_rnn_grid_times:num_rnn_grid_times_bte,O:labels_bte}
+            if end_i>Nte:
+                H_pad_bte += H_pad_bte[:no_to_pad]
+            feed_dict={waveform:H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+            med_cov_grid:meds_cov_pad,num_obs_times:num_obs_times,
+            num_obs_values:num_obs_values,num_rnn_grid_times:num_rnn_grid_times,O:labels_te}
+            """
+            feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+            med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_te,inds),
+            num_obs_values:vectorize(num_obs_values_te,inds),
+            num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
+            #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
             summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
             test_writer.add_summary(summary,i)
             #print "Te probs:"+str(te_probs)
             pred_probs.extend(te_probs)
             acc += te_acc
-            start_i = end_i
+            #start_i = end_i
         pickle.dump(labels_te,open('icis_revision/hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
         pickle.dump(pred_probs, open('icis_revision/hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))

@@ -20,6 +20,8 @@ glascow_total = {}
 glascow_verbal = {}
 def get_encounter(values):
     (sub,stay_no),data_index= values
+    sub = int(sub)
+    stay_no = int(stay_no)
     Y_i = []
     ind_kf_i = []
     ind_kt_i = []
@@ -131,6 +133,7 @@ def prep_mimic(train,fold):
     #sub_stay = sub_stay[:10]
     tot = len(sub_stay)
     #sub_stay = sub_stay[:(tot/5)*5]
+    print("Preparing dataset of size:%s"%(tot))
     #print sub_stay
     #subject_ids = subject_ids[:10]
     #cancelled_subs = []
