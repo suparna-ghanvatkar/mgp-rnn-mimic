@@ -41,6 +41,8 @@ def get_encounter(values):
     #the drop and remove neg Hours value screws up the indices. So create a map for the final index numbers in the data frame and the actually 't' index we want to index. useful to glascow vars
     row_map = {n:i for i,n in enumerate(T_i.index)}
     #create and add discrete numeric values for glascow records
+    #deleting these right now and checking
+    """
     col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
     for col,dlist in col_names:
         tseries = timeline[col]
@@ -54,6 +56,7 @@ def get_encounter(values):
             Y_i.append(value)
             ind_kf_i.append(column_map[col]-1)
             ind_kt_i.append(row_map[ind])
+    """
     #drop the glascow and hours column and create a mask of values present
     #print timeline.shape
     col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']

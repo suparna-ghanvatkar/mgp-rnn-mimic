@@ -299,7 +299,7 @@ if __name__ == "__main__":
             (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
             values_tr,ind_lvs_tr,ind_times_tr,meds_on_grid_tr,covs_tr, H_tr) = prep_mimic('train',args.fold)
             (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
-            values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('val',args.fold)
+            values_te,ind_lvs_te,ind_times_te,meds_on_grid_te,covs_te, H_te) = prep_mimic('test',args.fold)
             num_enc = len(num_obs_times_tr)
         else:
             (num_obs_times_te,num_obs_values_te,num_rnn_grid_times_te,rnn_grid_times_te,labels_te,times_te,
@@ -308,7 +308,7 @@ if __name__ == "__main__":
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs, high_freq) = prep_mimic('train',args.fold)
         '''
-        M = 25
+        M = 21
         n_meds = 5
         n_covs = 9
     else:
@@ -498,10 +498,10 @@ if __name__ == "__main__":
     print("Graph setup!")
     saver = tf.train.Saver(max_to_keep = 30)
     #Initializing the saver
-    train_writer = tf.summary.FileWriter('tensorboard_icis/hierarchical/train/'+str(args.fold),sess.graph)
-    if not os.path.exists('tensorboard_icis'):
-        os.makedirs('tensorboard_icis')
-    test_writer = tf.summary.FileWriter('tensorboard_icis/hierarchical/test/'+str(args.fold))
+    train_writer = tf.summary.FileWriter('tensorboard_noglascow/hierarchical/train/'+str(args.fold),sess.graph)
+    if not os.path.exists('tensorboard_noglascow'):
+        os.makedirs('tensorboard_noglascow')
+    test_writer = tf.summary.FileWriter('tensorboard_noglascow/hierarchical/test/'+str(args.fold))
 
 
     if mode!="test":
@@ -517,7 +517,7 @@ if __name__ == "__main__":
 
 
         ##### Main training loop
-        checkpoint_freq = 5*test_freq
+        checkpoint_freq = 5*num_batches
         epoch_loss = 0.0
         total_batches = 0
         i = 0
@@ -530,10 +530,12 @@ if __name__ == "__main__":
             if Ntr%batch_size!=0:
                 rem = perm[:batch_size-(Ntr%batch_size)]
                 perm = np.append(perm,rem)
+                print(len(perm))
             batch = 0
             for s,e in zip(starts,ends):
                 batch_start = time()
                 inds = perm[s:e]
+                #print(inds)
                 T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
                         vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                         vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds),vectorize(H_tr,inds))
@@ -560,38 +562,38 @@ if __name__ == "__main__":
                 batch += 1; total_batches += 1
 
                 if mode=="trainval":
-                    if total_batches % test_freq == 0: #Check val set every so often for early stopping
+                    if total_batches % num_batches == 0: #Check val set every so often for early stopping
                         #TODO: may also want to check validation performance at additional X hours back
                         #from the event time, as well as just checking performance at terminal time
                         #on the val set, so you know if it generalizes well further back in time as well
                         #print("Testing")
-                        epoch_loss = epoch_loss/test_freq
+                        epoch_loss = epoch_loss/num_batches
                         print("The average loss in the epoch is:%s"%epoch_loss)
                         #epoch_loss = 0.0
                         test_t = time()
                         acc = 0.0
                         auc = 0.0
                         prc = 0.0
-                        starts = np.arange(0,Nte,batch_size)
-                        ends = np.arange(batch_size,Nte+1,batch_size)
-                        perm = np.arange(Nte)
+                        te_starts = np.arange(0,Nte,batch_size)
+                        te_ends = np.arange(batch_size,Nte+1,batch_size)
+                        te_perm = np.arange(Nte)
                         no_to_pad = batch_size-(Nte%batch_size)
                         print(no_to_pad)
                         #print ends
-                        if ends[-1]<Nte:
-                            ends = np.append(ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
-                            rem = perm[:no_to_pad]
-                            perm = np.append(perm,rem)
+                        if te_ends[-1]<Nte:
+                            te_ends = np.append(te_ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
+                            te_rem = te_perm[:no_to_pad]
+                            te_perm = np.append(te_perm,te_rem)
                         #print(ends)
-                        num_batches = len(ends)
+                        #num_batches = len(ends)
                         no_iters = int(ceil((Nte*1.0)/batch_size))
                         start_i = 0
                         pred_probs = []
-                        print(perm)
+                        #print(perm)
                         batch = 0
-                        for s,e in zip(starts,ends):
+                        for ts,te in zip(te_starts,te_ends):
                             batch_start = time()
-                            inds = perm[s:e]
+                            inds = te_perm[ts:te]
                             #print(inds)
                             T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad, H_pad = pad_data(
                                     vectorize(times_te,inds),vectorize(values_te,inds),vectorize(ind_lvs_te,inds),vectorize(ind_times_te,inds),
@@ -610,8 +612,8 @@ if __name__ == "__main__":
                             #auc += te_auc
                             #prc += te_prc
                         acc = acc/no_iters
-                        te_auc = roc_auc_score(labels_te, pred_probs)
-                        te_prc = average_precision_score(labels_te, pred_probs)
+                        te_auc = roc_auc_score(labels_te, pred_probs[:len(labels_te)])
+                        te_prc = average_precision_score(labels_te, pred_probs[:len(labels_te)])
                         print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
                             "{:.2f}".format(time()-test_t)+\
                             ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
@@ -621,10 +623,10 @@ if __name__ == "__main__":
 
                     #create a folder and put model checkpoints there
             if mode=="trainonly":
-                epoch_loss= epoch_loss/test_freq
+                epoch_loss= epoch_loss/num_batches
             i += 1
             #if total_batches%checkpoint_freq==0:
-            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/", global_step=total_batches)
+            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/", global_step=total_batches)
             print("Finishing epoch "+"{:d}".format(i)+", took "+\
                   "{:.3f}".format(time()-epoch_start)+" with loss:"+\
                   "{:.3f}".format(epoch_loss))
@@ -633,7 +635,7 @@ if __name__ == "__main__":
             ### Should converge reasonably quickly on this toy example with these settings in a few epochs
 
     if mode=="test":
-        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP/"+str(args.fold)+"/"
+        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/"
         ckpt_state = tf.train.get_checkpoint_state(ckpt_dir)
         saver.restore(sess,ckpt_state.model_checkpoint_path)
         print("Model restored")
@@ -697,5 +699,5 @@ if __name__ == "__main__":
             pred_probs.extend(te_probs)
             acc += te_acc
             #start_i = end_i
-        pickle.dump(labels_te,open('icis_revision/hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
-        pickle.dump(pred_probs, open('icis_revision/hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(labels_te,open('icis_revision/noglascow_hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(pred_probs, open('icis_revision/noglascow_hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))

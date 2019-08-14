@@ -253,7 +253,7 @@ def create_baseline_input():
             fname = str(sub)+'_episode'+str(stay_no)+'_timeseries.csv'
             dest_path = fold_dir+'train/'+fname
             timeline = pd.read_csv(src_path)
-            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
+            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
             timeline = timeline[timeline.Hours>=0]
             timeline = timeline[timeline.Hours<=24]
             timeline = timeline.drop_duplicates()
@@ -268,7 +268,7 @@ def create_baseline_input():
             label = stays['MORTALITY_INHOSPITAL'][stay_no]
             src_path = '/data/suparna/MGP_data/root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv'
             timeline = pd.read_csv(src_path)
-            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
+            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
             timeline = timeline[timeline.Hours>=0]
             timeline = timeline[timeline.Hours<=24]
             timeline = timeline.drop_duplicates()
