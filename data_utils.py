@@ -232,14 +232,14 @@ def create_baseline_input():
     #create the file [stay, y_true] csv file for the benchmark in-hosp mortality
     #first create the train and test folders in in-hosp benchmark folder - do this in the shell itself before running the function
     for i in range(5):
-        train = pickle.load(open('icis_revision/filtered_substays_train_fold'+str(i)+'.pickle','rb'))
-        test = pickle.load(open('icis_revision/filtered_substays_test_fold'+str(i)+'.pickle','rb'))
+        train = pickle.load(open('icis_revision/complete_filtered_substays_train_fold'+str(i)+'.pickle','rb'))
+        test = pickle.load(open('icis_revision/complete_filtered_substays_test_fold'+str(i)+'.pickle','rb'))
         #find each episode file and copy it into the folds train or test folder
-        trainfile = open('/data/suparna/icis2019/lstm/'+str(i)+'/train_listfile.csv','w')
+        trainfile = open('/data/suparna/icis2019/complete_lstm/'+str(i)+'/train_listfile.csv','w')
         trainfile.write("stay,y_true\n")
-        testfile = open('/data/suparna/icis2019/lstm/'+str(i)+'/val_listfile.csv','w')
+        testfile = open('/data/suparna/icis2019/complete_lstm/'+str(i)+'/val_listfile.csv','w')
         testfile.write("stay,y_true\n")
-        fold_dir = '/data/suparna/icis2019/lstm/'+str(i)+'/'
+        fold_dir = '/data/suparna/icis2019/complete_lstm/'+str(i)+'/'
         data_path = '/data/suparna/MGP_data/'
         for (sub,stay_no),date_index in train:
             sub = int(sub)
