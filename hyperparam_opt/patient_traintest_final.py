@@ -132,8 +132,8 @@ def prep_mimic(train,fold):
     sub_stays_included = []
     '''
     #sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
-    sub_stay = pickle.load(open('icis_revision/complete_filtered_substays_'+train+'_fold'+str(fold)+'.pickle','rb'))
-    sub_stay = sub_stay[:60]
+    sub_stay = pickle.load(open('filtered_substays_'+train+'_fold'+str(fold)+'.pickle','rb'))
+    #sub_stay = sub_stay[:60]
     tot = len(sub_stay)
     #sub_stay = sub_stay[:(tot/5)*5]
     print("Preparing dataset of size:%s"%(tot))

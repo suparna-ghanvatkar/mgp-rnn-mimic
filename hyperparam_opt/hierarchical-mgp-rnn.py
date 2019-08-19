@@ -15,14 +15,12 @@ from time import time
 from sklearn.metrics import roc_auc_score, average_precision_score
 import sys
 import os
-from data_prep import dataset_prep
 import pickle
 from math import ceil
 import argparse
 from hierarchical_util import *
 #from hierarchical_util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
 #from simulations import *
-from hierarchical_simulations import *
 #from tf.keras.layers import *
 #from patient_events import *
 from patient_traintest_final import *
@@ -283,14 +281,14 @@ if __name__ == "__main__":
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
-    if args.sim=="sim":
-        num_encs=50#100#10000
-        M=10#17#10
-        n_covs=3#10
-        n_meds=10#2938#5
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
-    elif args.sim=="data":
+    #if args.sim=="sim":
+    #    num_encs=50#100#10000
+    #    M=10#17#10
+    #    n_covs=3#10
+    #    n_meds=10#2938#5
+    #    (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+    #    values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
+    if args.sim=="data":
         #'''
         if mode=="trainonly":
             (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
@@ -527,6 +525,7 @@ if __name__ == "__main__":
         #for i in range(training_iters):
         while epoch_loss>=30.0 or total_batches==0:
             #train
+            metric_opt = 0.0 #the metric which is given to hyperparam opt. Here the te_auc will be passed
             epoch_start = time()
             print("Starting epoch "+"{:d}".format(i))
             epoch_loss = 0.0
@@ -560,11 +559,12 @@ if __name__ == "__main__":
                     batch+=1; total_batches+=1
                     continue
                 #'''
-                print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+                #print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                #    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
                 sys.stdout.flush()
                 batch += 1; total_batches += 1
 
+                correct_proc = True
                 if mode=="trainval":
                     if total_batches % num_batches == 0: #Check val set every so often for early stopping
                         #TODO: may also want to check validation performance at additional X hours back
@@ -607,22 +607,32 @@ if __name__ == "__main__":
                             num_obs_values:vectorize(num_obs_values_te,inds),
                             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
                             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-                            summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
-                            test_writer.add_summary(summary,i)
-                            #print "Te probs:"+str(te_probs)
-                            pred_probs.extend(te_probs)
-                            acc += te_acc
-                            #auc += te_auc
-                            #prc += te_prc
-                        acc = acc/no_iters
-                        te_auc = roc_auc_score(labels_te, pred_probs[:len(labels_te)])
-                        te_prc = average_precision_score(labels_te, pred_probs[:len(labels_te)])
-                        print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                            "{:.2f}".format(time()-test_t)+\
-                            ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                            " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
-                            "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
-                        sys.stdout.flush()
+                            try:
+                                summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
+                                test_writer.add_summary(summary,i)
+                                #print "Te probs:"+str(te_probs)
+                                pred_probs.extend(te_probs)
+                                acc += te_acc
+                                #auc += te_auc
+                                #prc += te_prc
+                            except:
+                                correct_proc = False
+                        if correct_proc:
+                            acc = acc/no_iters
+                            te_auc = roc_auc_score(labels_te, pred_probs[:len(labels_te)])
+                            te_prc = average_precision_score(labels_te, pred_probs[:len(labels_te)])
+                            print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                                "{:.2f}".format(time()-test_t)+\
+                                ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                                " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
+                                "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                            sys.stdout.flush()
+                            #print(te_auc)
+                            metric_opt = te_auc
+                        else:
+                            #print("0")
+                            metric_opt = 0
+                            epoch_loss = 0.0
 
                     #create a folder and put model checkpoints there
             if mode=="trainonly":
@@ -632,6 +642,7 @@ if __name__ == "__main__":
             print("Finishing epoch "+"{:d}".format(i)+", took "+\
                   "{:.3f}".format(time()-epoch_start)+" with loss:"+\
                   "{:.3f}".format(epoch_loss))
+            print(metric_opt)
             i += 1
 
             ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
@@ -650,7 +661,7 @@ if __name__ == "__main__":
         ends = np.arange(batch_size,Nte+1,batch_size)
         perm = np.arange(Nte)
         no_to_pad = batch_size-(Nte%batch_size)
-        print(no_to_pad)
+        #print(no_to_pad)
         #print ends
         if ends[-1]<Nte:
             ends = np.append(ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
@@ -661,7 +672,7 @@ if __name__ == "__main__":
         no_iters = int(ceil((Nte*1.0)/batch_size))
         start_i = 0
         pred_probs = []
-        print(perm)
+        #print(perm)
         batch = 0
         for s,e in zip(starts,ends):
             batch_start = time()
