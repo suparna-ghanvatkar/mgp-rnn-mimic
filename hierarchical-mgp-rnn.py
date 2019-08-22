@@ -28,7 +28,7 @@ from hierarchical_simulations import *
 from patient_traintest_final import *
 #from patient_hierar_prep import *
 from tensorflow.python import debug as tf_debug
-os.environ["CUDA_VISIBLE_DEVICES"]="1"
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 #####
 ##### Tensorflow functions
@@ -524,8 +524,9 @@ if __name__ == "__main__":
         epoch_loss = 0.0
         total_batches = 0
         i = 0
+        thresh = 500
         #for i in range(training_iters):
-        while epoch_loss>=30.0 or total_batches==0:
+        while epoch_loss>=30.0 or total_batches==0 or i<=thresh:
             #train
             epoch_start = time()
             print("Starting epoch "+"{:d}".format(i))
@@ -565,6 +566,7 @@ if __name__ == "__main__":
                 sys.stdout.flush()
                 batch += 1; total_batches += 1
 
+                correct_proc = True
                 if mode=="trainval":
                     if total_batches % num_batches == 0: #Check val set every so often for early stopping
                         #TODO: may also want to check validation performance at additional X hours back
@@ -607,28 +609,38 @@ if __name__ == "__main__":
                             num_obs_values:vectorize(num_obs_values_te,inds),
                             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
                             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-                            summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
-                            test_writer.add_summary(summary,i)
-                            #print "Te probs:"+str(te_probs)
-                            pred_probs.extend(te_probs)
-                            acc += te_acc
-                            #auc += te_auc
-                            #prc += te_prc
-                        acc = acc/no_iters
-                        te_auc = roc_auc_score(labels_te, pred_probs[:len(labels_te)])
-                        te_prc = average_precision_score(labels_te, pred_probs[:len(labels_te)])
-                        print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                            "{:.2f}".format(time()-test_t)+\
-                            ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                            " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
-                            "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
-                        sys.stdout.flush()
+                            try:
+                                summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
+                                test_writer.add_summary(summary,i)
+                                #print "Te probs:"+str(te_probs)
+                                pred_probs.extend(te_probs)
+                                acc += te_acc
+                                #auc += te_auc
+                                #prc += te_prc
+                            except:
+                                correct_proc = False
+                        if correct_proc:
+                            acc = acc/no_iters
+                            te_auc = roc_auc_score(labels_te, pred_probs[:len(labels_te)])
+                            te_prc = average_precision_score(labels_te, pred_probs[:len(labels_te)])
+                            print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                                "{:.2f}".format(time()-test_t)+\
+                                ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                                " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
+                                "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                            sys.stdout.flush()
+                            #print(te_auc)
+                            metric_opt = te_auc
+                        else:
+                            #print("0")
+                            metric_opt = 0
+                            epoch_loss = 0.0
 
                     #create a folder and put model checkpoints there
             if mode=="trainonly":
                 epoch_loss= epoch_loss/num_batches
             #if total_batches%checkpoint_freq==0:
-            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/", global_step=total_batches)
+            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_balanced/"+str(args.fold)+"/", global_step=total_batches)
             print("Finishing epoch "+"{:d}".format(i)+", took "+\
                   "{:.3f}".format(time()-epoch_start)+" with loss:"+\
                   "{:.3f}".format(epoch_loss))
@@ -638,7 +650,7 @@ if __name__ == "__main__":
             ### Should converge reasonably quickly on this toy example with these settings in a few epochs
 
     if mode=="test":
-        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/"
+        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_balanced/"+str(args.fold)+"/"
         ckpt_state = tf.train.get_checkpoint_state(ckpt_dir)
         saver.restore(sess,ckpt_state.model_checkpoint_path)
         print("Model restored")
@@ -702,5 +714,5 @@ if __name__ == "__main__":
             pred_probs.extend(te_probs)
             acc += te_acc
             #start_i = end_i
-        pickle.dump(labels_te,open('icis_revision/noglascow_hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
-        pickle.dump(pred_probs, open('icis_revision/noglascow_hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(labels_te,open('icis_revision/balanced_hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(pred_probs, open('icis_revision/balanced_hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))

@@ -522,8 +522,9 @@ if __name__ == "__main__":
         epoch_loss = 0.0
         total_batches = 0
         i = 0
+        thresh = 500
         #for i in range(training_iters):
-        while epoch_loss>=30.0 or total_batches==0:
+        while epoch_loss>=30.0 or total_batches==0 or i<=thresh:
             #train
             metric_opt = 0.0 #the metric which is given to hyperparam opt. Here the te_auc will be passed
             epoch_start = time()
