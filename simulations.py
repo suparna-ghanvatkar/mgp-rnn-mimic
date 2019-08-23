@@ -5,7 +5,6 @@ from time import time
 from sklearn.metrics import roc_auc_score, average_precision_score
 import sys
 import os
-from data_prep import dataset_prep
 import pickle
 from math import ceil
 import argparse
@@ -131,9 +130,6 @@ def sim_dataset_low(num_encs,M,n_covs,n_meds,pos_class_rate = 0.5,trainfrac=0.7)
     Y = np.array(Y); ind_kf = np.array(ind_kf); ind_kt = np.array(ind_kt)
     meds_on_grid = np.array(meds_on_grid)
     rnn_grid_times = np.array(rnn_grid_times)
-    print np.array(num_obs_times).mean()
-    print np.array(num_obs_values).mean()
-    print np.array(num_rnn_grid_times).mean()
     #print rnn_grid_times
     #print labels
     #print T

@@ -215,7 +215,7 @@ def prep_highf_mgp(train,fold):
             num_rnn_grid_times.append(len(rnn_grid_times[-1]))
             #validation
             if num_rnn_grid_times[-1]!=len(meds_on_grid_i):
-                print "tafavat in sub", sub, str(num_rnn_grid_times[-1]), str(len(meds_on_grid_i))
+                print("tafavat in sub"+str(sub)+str(num_rnn_grid_times[-1])+(str(len(meds_on_grid_i))))
             meds_on_grid.append(meds_on_grid_i.tolist())
             baseline_covs.append(baseline_i)
             Y.append(Y_i)
@@ -275,7 +275,9 @@ def retrieve_mimic_dataset(train):
             labels,T,Y,ind_kf,ind_kt,meds_on_grid,baseline_covs)
 
 def get_encounter_baseline(values):
-    sub,stay_no,date,index = values
+    (sub,stay_no),date_index = values
+    sub = int(sub)
+    stay_no = int(stay_no)
     Y_i = []
     ind_kf_i = []
     ind_kt_i = []
@@ -294,6 +296,7 @@ def get_encounter_baseline(values):
     column_map = {n:i for i,n in enumerate(list(timeline.columns))}
     #the drop and remove neg Hours value screws up the indices. So create a map for the final index numbers in the data frame and the actually 't' index we want to index. useful to glascow vars
     row_map = {n:i for i,n in enumerate(T_i.index)}
+    """
     #create and add discrete numeric values for glascow records
     col_names = [('Glascow coma scale eye opening',glascow_eye_open), ('Glascow coma scale motor response',glascow_motor), ('Glascow coma scale total',glascow_total),('Glascow coma scale verbal response',glascow_verbal)]
     for col,dlist in col_names:
@@ -308,6 +311,7 @@ def get_encounter_baseline(values):
             Y_i.append(value)
             ind_kf_i.append(column_map[col]-1)
             ind_kt_i.append(row_map[index])
+    """
     #drop the glascow and hours column and create a mask of values present
     col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response']
     timeline = timeline.drop(col_del,axis=1)
@@ -346,7 +350,7 @@ def prep_baseline_mgp(train,fold):
     #sub_stay = pickle.load(open('sub_stay_'+train+'_mimic.pickle','r'))
     #sub_stay = sub_stay[:10]
     #sub_stay = pickle.load(open('final_substays_'+train+'_'+str(fold)+'.pickle','r'))
-    sub_stay = pickle.load(open('balanced_data_'+train+'_'+str(fold)+'.pickle','r'))
+    sub_stay = pickle.load(open('icis_revision/filtered_substays_'+train+'_fold'+str(fold)+'.pickle','rb'))
     count = len(sub_stay)
     #sub_stay = sub_stay[:(count/5)*5]
     #sub_stay = sub_stay[:30]
@@ -380,7 +384,7 @@ def prep_baseline_mgp(train,fold):
         #for sub,stay_no,date,index in sub_stay:
         results = executor.map(get_encounter_baseline, sub_stay,chunksize=3)
         for stay_info,values in zip(sub_stay,results):
-            sub,stay_no,date,index = stay_info
+            (sub,stay_no),date_index = stay_info
             T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label = values
             rnn_grid_times.append(grid_times)
             end_times.append(len(rnn_grid_times[-1])-1)
@@ -389,7 +393,7 @@ def prep_baseline_mgp(train,fold):
             num_rnn_grid_times.append(len(rnn_grid_times[-1]))
             #validation
             if num_rnn_grid_times[-1]!=len(meds_on_grid_i):
-                print "tafavat in sub", sub, str(num_rnn_grid_times[-1]), str(len(meds_on_grid_i))
+                print("tafavat in sub"+str(sub)+str(num_rnn_grid_times[-1])+(str(len(meds_on_grid_i))))
             meds_on_grid.append(meds_on_grid_i.tolist())
             baseline_covs.append(baseline_i)
             Y.append(Y_i)
@@ -400,9 +404,6 @@ def prep_baseline_mgp(train,fold):
             end_time = time()
     #print("num of grid times:%s"%num_rnn_grid_times)
     #'''
-    print np.array(num_obs_times).mean()
-    print np.array(num_obs_values).mean()
-    print np.array(num_rnn_grid_times).mean()
     '''
     print rnn_grid_times
     print labels

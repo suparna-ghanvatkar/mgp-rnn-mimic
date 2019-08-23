@@ -611,7 +611,7 @@ if __name__ == "__main__":
                             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
                             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
                             try:
-                                summary,te_probs,te_acc,te_loss,te_preds = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
+                                summary,te_probs,te_acc,te_preds,te_loss = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
                                 test_writer.add_summary(summary,i)
                                 #print "Te probs:"+str(te_probs)
                                 pred_probs.extend(te_probs)
@@ -711,7 +711,7 @@ if __name__ == "__main__":
             num_obs_values:vectorize(num_obs_values_te,inds),
             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-            summary,te_probs,te_acc,te_loss,te_preds = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
+            summary,te_probs,te_acc,te_preds,te_loss = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
             test_writer.add_summary(summary,i)
             #print "Te probs:"+str(te_probs)
             pred_probs.extend(te_probs)
