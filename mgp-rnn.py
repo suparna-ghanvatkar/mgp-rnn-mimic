@@ -214,22 +214,26 @@ def get_probs_and_accuracy(preds,O):
         probs = tf.concat([probs,[tf.reduce_mean(tf.slice(all_probs,[i*n_mc_smps],[n_mc_smps]))]],0)
         return i+1,probs
     i = tf.constant(0)
-    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])], swap_memory=True)
+    i,probs = tf.while_loop(cond,body,loop_vars=[i,probs],shape_invariants=[i.get_shape(),tf.TensorShape([None])])
 
     #compare to truth; just use cutoff of 0.5 for right now to get accuracy
     correct_pred = tf.equal(tf.cast(tf.greater(probs,0.5),tf.int32), O)
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-    return probs,accuracy
+    return probs,accuracy,correct_pred
 
 def vectorize(l,ind):
     return [l[i] for i in ind]
 
 flags = tf.app.flags
-flags.DEFINE_float("lr",0.001,"")
-flags.DEFINE_float("l2_penalty",1e-3,"")
-flags.DEFINE_float("epochs",55.0,"")
-flags.DEFINE_float("batch",10.0,"")
-flags.DEFINE_float("n_layers",3.0,"")
+#params obtained after hyperparameter optimization
+flags.DEFINE_float("lr",0.00057,"")
+flags.DEFINE_float("l2_penalty",0.005177,"")
+flags.DEFINE_float("n_layers",2.0,"")
+flags.DEFINE_float("epochs",140.0,"")
+flags.DEFINE_float("batch",30.0,"")
+flags.DEFINE_float("beta1",0.9,"")
+flags.DEFINE_float("beta2",0.999,"")
+flags.DEFINE_float("epsilon",0.5,"")
 FLAGS=flags.FLAGS
 
 if __name__ == "__main__":
@@ -237,16 +241,23 @@ if __name__ == "__main__":
     rs = np.random.RandomState(seed) #fixed seed in np
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
-    parser.add_argument('sim', type=str, help='prev/sim/data/prevdata')
+    #parser.add_argument('high', type=str, help='high frequency or low only. type high/low')
+    parser.add_argument('sim', type=str, help='prevsim/sim/data/prevdata')
+    parser.add_argument('mode', type=str, help='trainonly/trainval/test')
     parser.add_argument('fold',type=int,help='fold number')
     parser.add_argument('-lr',type=float, help='lr value')
     parser.add_argument("-l2_penalty",type=float)
     parser.add_argument("-epochs",type=int)
     parser.add_argument("-batch",type=float)
     parser.add_argument("-n_layers",type=float)
+    parser.add_argument("-beta1",type=float)
+    parser.add_argument("-beta2",type=float)
+    parser.add_argument("-epsilon",type=float)
+    parser.add_argument("-tensorboard",type=str,default="tensorboard_icis2019")
+    #parser.add_argument("-wave_layers",type=float)
     parser.add_argument('--debug', dest='debug')
     args = parser.parse_args()
+    mode = args.mode
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
@@ -315,6 +326,7 @@ if __name__ == "__main__":
     else:
         (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
         values,ind_lvs,ind_times,meds_on_grid,covs) = retrieve_sim_dataset()
+    #N_tot = len(labels) #total encounters
     if args.lr:
         FLAGS.lr = args.lr
     if args.l2_penalty:
@@ -325,6 +337,12 @@ if __name__ == "__main__":
         FLAGS.batch = args.batch
     if args.n_layers:
         FLAGS.n_layers = args.n_layers
+    if args.beta1:
+        FLAGS.beta1 = args.beta1
+    if args.beta2:
+        FLAGS.beta2 = args.beta2
+    if args.epsilon:
+        FLAGS.epsilon = args.epsilon
     '''
     N_tot = len(labels) #total encounters
     train_test_perm = rs.permutation(N_tot)
@@ -353,10 +371,16 @@ if __name__ == "__main__":
     rnn_grid_times_tr = [rnn_grid_times[i] for i in tr_ind]; rnn_grid_times_te = [rnn_grid_times[i] for i in te_ind]
     num_rnn_grid_times_tr = [num_rnn_grid_times[i] for i in tr_ind]; num_rnn_grid_times_te = [num_rnn_grid_times[i] for i in te_ind]
     #'''
-    Ntr = len(covs_tr)
-    Nte = len(covs_te)
+    if mode=="trainonly":
+        Ntr = len(covs_tr)
+    elif mode=="trainval":
+        Ntr = len(covs_tr)
+        Nte = len(covs_te)
+    else:
+        Nte = len(covs_te)
+    #print("Train/test split : %s-%s"%(Ntr,Nte))
     print("data fully setup!")
-    print("Total encounters:%s and total training samples:%s"%(Ntr+Nte,Ntr))
+    #print("test labels are:%s"%labels_te)
     sys.stdout.flush()
     #####
     ##### Setup model and graph
@@ -379,10 +403,15 @@ if __name__ == "__main__":
     n_mc_smps = 25
 
     # Create graph
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.8
     ops.reset_default_graph()
-    sess = tf.Session()
+    sess = tf.Session(config=config)
     if args.debug:
         sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+    if mode=="test" or mode=="trainval":
+        T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te = pad_rawdata(
+                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te)
 
 
     ##### tf Graph - inputs
@@ -435,7 +464,7 @@ if __name__ == "__main__":
     preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
     #printop = tf.Print(preds, [preds], "The preds are:",-1,10)
     #with tf.control_dependencies([printop]):
-    probs,accuracy = get_probs_and_accuracy(preds,O)
+    probs,accuracy,pred_labels = get_probs_and_accuracy(preds,O)
     tf.summary.scalar('accuracy',accuracy)
     # Define optimization problem
     loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
@@ -449,42 +478,51 @@ if __name__ == "__main__":
 
     #Create a visualizer object
     merged = tf.summary.merge_all()
-    train_writer = tf.summary.FileWriter('tensorboard/'+args.high+'/train/'+str(args.fold),sess.graph)
-    if not os.path.exists('tensorboard'):
-        os.makedirs('tensorboard')
-    test_writer = tf.summary.FileWriter('tensorboard/'+args.high+'/test/'+str(args.fold))
-
-    ##### Initialize globals and get ready to start!
     sess.run(tf.global_variables_initializer())
     print("Graph setup!")
+    saver = tf.train.Saver(max_to_keep = 30)
+    #Initializing the saver
+    tb_dir = args.tensorboard
+    train_writer = tf.summary.FileWriter(tb_dir+'mgp/train/'+str(args.fold),sess.graph)
+    if not os.path.exists(tb_dir):
+        os.makedirs(tb_dir)
+    test_writer = tf.summary.FileWriter(tb_dir+'mgp/test/'+str(args.fold))
 
-    #setup minibatch indices
-    #print Ntr
-    #print batch_size
-    starts = np.arange(0,Ntr,batch_size)
-    ends = np.arange(batch_size,Ntr+1,batch_size)
-    #print ends
-    if ends[-1]<Ntr:
-        ends = np.append(ends,Ntr)
-    num_batches = len(ends)
+    if mode!="test":
+        #setup minibatch indices
+        #print Ntr
+        #print batch_size
+        starts = np.arange(0,Ntr,batch_size)
+        ends = np.arange(batch_size,Ntr+1,batch_size)
+        #print ends
+        if ends[-1]<Ntr:
+            ends = np.append(ends,int(ceil((Ntr*1.0)/batch_size))*batch_size)
+        num_batches = len(ends)
 
-    T_pad_te,Y_pad_te,ind_kf_pad_te,ind_kt_pad_te,X_pad_te,meds_cov_pad_te = pad_rawdata(
-                    times_te,values_te,ind_lvs_te,ind_times_te,rnn_grid_times_te,meds_on_grid_te,covs_te)
 
-    ##### Main training loop
-    saver = tf.train.Saver(max_to_keep = None)
-    evaluation = []
-    total_batches = 0
-    for i in range(training_iters):
-        #train
-        epoch_start = time()
-        print("Starting epoch "+"{:d}".format(i))
-        perm = rs.permutation(Ntr)
-        batch = 0
-        for s,e in zip(starts,ends):
-            batch_start = time()
-            inds = perm[s:e]
-            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_rawdata(
+        ##### Main training loop
+        checkpoint_freq = 5*num_batches
+        epoch_loss = 0.0
+        total_batches = 0
+        i = 0
+        thresh = 500
+        #for i in range(training_iters):
+        while epoch_loss>=30.0 or total_batches==0 or i<=thresh:
+            #train
+            epoch_start = time()
+            print("Starting epoch "+"{:d}".format(i))
+            epoch_loss = 0.0
+            perm = rs.permutation(Ntr)
+            if Ntr%batch_size!=0:
+                rem = perm[:batch_size-(Ntr%batch_size)]
+                perm = np.append(perm,rem)
+                print(len(perm))
+            batch = 0
+            for s,e in zip(starts,ends):
+                batch_start = time()
+                inds = perm[s:e]
+                #print(inds)
+                T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_rawdata(
                     vectorize(times_tr,inds),vectorize(values_tr,inds),vectorize(ind_lvs_tr,inds),vectorize(ind_times_tr,inds),
                     vectorize(rnn_grid_times_tr,inds),vectorize(meds_on_grid_tr,inds),vectorize(covs_tr,inds))
             #print meds_cov_pad
@@ -493,50 +531,172 @@ if __name__ == "__main__":
                med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_tr,inds),
                num_obs_values:vectorize(num_obs_values_tr,inds),
                num_rnn_grid_times:vectorize(num_rnn_grid_times_tr,inds),O:vectorize(labels_tr,inds)}
-            #'''
-            try:
-                summary, loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-                train_writer.add_summary(summary, i)
-            except:
+                #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+                #'''
+                try:
+                    summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+                    epoch_loss += loss_
+                    train_writer.add_summary(summary,i)
+                except:
+                    print("problem in "+str(batch))
+                    batch+=1; total_batches+=1
+                    continue
+                #'''
+                print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+                sys.stdout.flush()
                 batch += 1; total_batches += 1
-                #print("problem in %s"%(batch-1))
-                #print len(T_pad)
-                continue
-            #'''
-            #loss_,_ = sess.run([loss,train_op],feed_dict)
-            print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
-            sys.stdout.flush()
-            batch += 1; total_batches += 1
 
-            if total_batches % test_freq == 0: #Check val set every so often for early stopping
-                #TODO: may also want to check validation performance at additional X hours back
-                #from the event time, as well as just checking performance at terminal time
-                #on the val set, so you know if it generalizes well further back in time as well
-                #print "starting eval"
-                test_t = time()
-                feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
+                correct_proc = True
+                if mode=="trainval":
+                    if total_batches % num_batches == 0: #Check val set every so often for early stopping
+                        #TODO: may also want to check validation performance at additional X hours back
+                        #from the event time, as well as just checking performance at terminal time
+                        #on the val set, so you know if it generalizes well further back in time as well
+                        #print("Testing")
+                        epoch_loss = epoch_loss/num_batches
+                        print("The average loss in the epoch is:%s"%epoch_loss)
+                        #epoch_loss = 0.0
+                        test_t = time()
+                        acc = 0.0
+                        auc = 0.0
+                        prc = 0.0
+                        te_starts = np.arange(0,Nte,batch_size)
+                        te_ends = np.arange(batch_size,Nte+1,batch_size)
+                        te_perm = np.arange(Nte)
+                        no_to_pad = batch_size-(Nte%batch_size)
+                        #print ends
+                        if te_ends[-1]<Nte:
+                            te_ends = np.append(te_ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
+                            te_rem = te_perm[:no_to_pad]
+                            te_perm = np.append(te_perm,te_rem)
+                        #print(ends)
+                        #num_batches = len(ends)
+                        no_iters = int(ceil((Nte*1.0)/batch_size))
+                        start_i = 0
+                        pred_probs = []
+                        predictions = []
+                        #print(perm)
+                        batch = 0
+                        for ts,te in zip(te_starts,te_ends):
+                            batch_start = time()
+                            inds = te_perm[ts:te]
+                            #print(inds)
+                            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_data(
+                                    vectorize(times_te,inds),vectorize(values_te,inds),vectorize(ind_lvs_te,inds),vectorize(ind_times_te,inds),
+                                    vectorize(rnn_grid_times_te,inds),vectorize(meds_on_grid_te,inds),vectorize(covs_te,inds))
+                            #print H_pad.shape
+                            feed_dict={Y:Y_pad_te,T:T_pad_te,ind_kf:ind_kf_pad_te,ind_kt:ind_kt_pad_te,X:X_pad_te,
                        med_cov_grid:meds_cov_pad_te,num_obs_times:num_obs_times_te,
                        num_obs_values:num_obs_values_te,num_rnn_grid_times:num_rnn_grid_times_te,O:labels_te}
-                summary, te_probs,te_acc,te_loss = sess.run([merged, probs,accuracy,loss],feed_dict)
-                test_writer.add_summary(summary, i)
-                te_auc = roc_auc_score(labels_te, te_probs)
-                te_prc = average_precision_score(labels_te, te_probs)
-                print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
-                      "{:.2f}".format(time()-test_t)+\
-                      ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
-                      " Acc: "+"{:.5f}".format(te_acc)+", AUC: "+ \
-                      "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
-                sys.stdout.flush()
-                evaluation = [te_loss,te_auc,te_prc,te_acc]
-                #create a folder and put model checkpoints there
-                pickle.dump(te_probs, open('mgp_'+args.high+'_pred_probs'+str(args.fold)+'.pickle','w'))
-                if args.high=="low":
-                    saver.save(sess, "MGP-RNN/"+str(args.fold)+"/", global_step=total_batches)
-                else:
-                    saver.save(sess, "MGP-RNN-HIGHF/"+str(args.fold)+"/", global_step=total_batches)
-        print("Finishing epoch "+"{:d}".format(i)+", took "+\
-              "{:.3f}".format(time()-epoch_start))
-        ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
-        ### Should converge reasonably quickly on this toy example with these settings in a few epochs
-    print te_auc
+                            #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+                            try:
+                                summary,te_probs,te_acc,te_loss,te_preds = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
+                                test_writer.add_summary(summary,i)
+                                #print "Te probs:"+str(te_probs)
+                                pred_probs.extend(te_probs)
+                                predictions.extend(te_preds)
+                                acc += te_acc
+                                #auc += te_auc
+                                #prc += te_prc
+                            except:
+                                correct_proc = False
+                        if correct_proc:
+                            acc = acc/no_iters
+                            te_auc = roc_auc_score(labels_te, pred_probs[:len(labels_te)])
+                            te_prc = average_precision_score(labels_te, pred_probs[:len(labels_te)])
+                            print("Epoch "+str(i)+", seen "+str(total_batches)+" total batches. Testing Took "+\
+                                "{:.2f}".format(time()-test_t)+\
+                                ". OOS, "+str(0)+" hours back: Loss: "+"{:.5f}".format(te_loss)+ \
+                                " Acc: "+"{:.5f}".format(acc)+", AUC: "+ \
+                                "{:.5f}".format(te_auc)+", AUPR: "+"{:.5f}".format(te_prc))
+                            sys.stdout.flush()
+                            #print(te_auc)
+                            metric_opt = te_auc
+                        else:
+                            #print("0")
+                            metric_opt = 0
+                            epoch_loss = 0.0
+
+                    #create a folder and put model checkpoints there
+            if mode=="trainonly":
+                epoch_loss= epoch_loss/num_batches
+            #if total_batches%checkpoint_freq==0:
+            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_balanced/"+str(args.fold)+"/", global_step=total_batches)
+            print("Finishing epoch "+"{:d}".format(i)+", took "+\
+                  "{:.3f}".format(time()-epoch_start)+" with loss:"+\
+                  "{:.3f}".format(epoch_loss))
+            i += 1
+
+            ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
+            ### Should converge reasonably quickly on this toy example with these settings in a few epochs
+
+    if mode=="test":
+        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_balanced/"+str(args.fold)+"/"
+        ckpt_state = tf.train.get_checkpoint_state(ckpt_dir)
+        saver.restore(sess,ckpt_state.model_checkpoint_path)
+        print("Model restored")
+        test_t = time()
+        acc = 0.0
+        auc = 0.0
+        prc = 0.0
+        starts = np.arange(0,Nte,batch_size)
+        ends = np.arange(batch_size,Nte+1,batch_size)
+        perm = np.arange(Nte)
+        no_to_pad = batch_size-(Nte%batch_size)
+        print(no_to_pad)
+        #print ends
+        if ends[-1]<Nte:
+            ends = np.append(ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
+            rem = perm[:no_to_pad]
+            perm = np.append(perm,rem)
+        #print(ends)
+        num_batches = len(ends)
+        no_iters = int(ceil((Nte*1.0)/batch_size))
+        start_i = 0
+        pred_probs = []
+        predictions = []
+        print(perm)
+        batch = 0
+        for s,e in zip(starts,ends):
+            batch_start = time()
+            inds = perm[s:e]
+            #print(inds)
+            T_pad,Y_pad,ind_kf_pad,ind_kt_pad,X_pad,meds_cov_pad = pad_data(
+                    vectorize(times_te,inds),vectorize(values_te,inds),vectorize(ind_lvs_te,inds),vectorize(ind_times_te,inds),
+                    vectorize(rnn_grid_times_te,inds),vectorize(meds_on_grid_te,inds),vectorize(covs_te,inds))
+            #print H_pad.shape
+            """
+        for j in range(no_iters):
+            end_i = start_i+batch_size
+            H_pad_bte = H_pad_te[start_i:end_i]
+            Y_pad_bte = Y_pad_te[start_i:end_i]
+            T_pad_bte = T_pad_te[start_i:end_i]
+            ind_kf_pad_bte = ind_kf_pad_te[start_i:end_i]
+            ind_kt_pad_bte = ind_kt_pad_te[start_i:end_i]
+            X_pad_bte = X_pad_te[start_i:end_i]
+            meds_cov_pad_bte = meds_cov_pad_te[start_i:end_i]
+            num_obs_times_bte = num_obs_times_te[start_i:end_i]
+            num_obs_values_bte = num_obs_values_te[start_i:end_i]
+            num_rnn_grid_times_bte = num_rnn_grid_times_te[start_i:end_i]
+            labels_bte = labels_te[start_i:end_i]
+            if end_i>Nte:
+                H_pad_bte += H_pad_bte[:no_to_pad]
+            feed_dict={waveform:H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+            med_cov_grid:meds_cov_pad,num_obs_times:num_obs_times,
+            num_obs_values:num_obs_values,num_rnn_grid_times:num_rnn_grid_times,O:labels_te}
+            """
+            feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+            med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_te,inds),
+            num_obs_values:vectorize(num_obs_values_te,inds),
+            num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
+            #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
+            summary,te_probs,te_acc,te_loss,te_preds = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
+            test_writer.add_summary(summary,i)
+            #print "Te probs:"+str(te_probs)
+            pred_probs.extend(te_probs)
+            predictions.extend(te_preds)
+            acc += te_acc
+            #start_i = end_i
+        pickle.dump(labels_te,open('icis_revision/balanced_hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(predictions, open('icis_revision/balanced_hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))

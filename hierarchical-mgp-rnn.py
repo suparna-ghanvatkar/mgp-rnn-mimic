@@ -233,7 +233,7 @@ def get_probs_and_accuracy(preds,O):
     #compare to truth; just use cutoff of 0.5 for right now to get accuracy
     correct_pred = tf.equal(tf.cast(tf.greater(probs,0.5),tf.int32), O)
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-    return probs,accuracy
+    return probs,accuracy,correct_pred
 
 def vectorize(l,ind):
     return [l[i] for i in ind]
@@ -480,7 +480,7 @@ if __name__ == "__main__":
 
     ##### Get predictions and feed into optimization
     preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
-    probs,accuracy = get_probs_and_accuracy(preds,O)
+    probs,accuracy,pred_labels = get_probs_and_accuracy(preds,O)
     tf.summary.scalar('accuracy',accuracy)
     # Define optimization problem
     loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
@@ -594,6 +594,7 @@ if __name__ == "__main__":
                         no_iters = int(ceil((Nte*1.0)/batch_size))
                         start_i = 0
                         pred_probs = []
+                        predictions = []
                         #print(perm)
                         batch = 0
                         for ts,te in zip(te_starts,te_ends):
@@ -610,10 +611,11 @@ if __name__ == "__main__":
                             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
                             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
                             try:
-                                summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
+                                summary,te_probs,te_acc,te_loss,te_preds = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
                                 test_writer.add_summary(summary,i)
                                 #print "Te probs:"+str(te_probs)
                                 pred_probs.extend(te_probs)
+                                predictions.extend(te_preds)
                                 acc += te_acc
                                 #auc += te_auc
                                 #prc += te_prc
@@ -673,6 +675,7 @@ if __name__ == "__main__":
         no_iters = int(ceil((Nte*1.0)/batch_size))
         start_i = 0
         pred_probs = []
+        predictions = []
         print(perm)
         batch = 0
         for s,e in zip(starts,ends):
@@ -708,11 +711,12 @@ if __name__ == "__main__":
             num_obs_values:vectorize(num_obs_values_te,inds),
             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-            summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
+            summary,te_probs,te_acc,te_loss,te_preds = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
             test_writer.add_summary(summary,i)
             #print "Te probs:"+str(te_probs)
             pred_probs.extend(te_probs)
+            predictions.extend(te_preds)
             acc += te_acc
             #start_i = end_i
         pickle.dump(labels_te,open('icis_revision/balanced_hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
-        pickle.dump(pred_probs, open('icis_revision/balanced_hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(predictions, open('icis_revision/balanced_hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))
