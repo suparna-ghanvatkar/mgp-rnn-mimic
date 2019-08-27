@@ -12,7 +12,7 @@ import tensorflow as tf
 from tensorflow.python.framework import ops
 import numpy as np
 from time import time
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, confusion_matrix
 import sys
 import os
 import pickle
@@ -391,7 +391,6 @@ if __name__ == "__main__":
     #TODO: add dropout regularization
     training_iters = int(FLAGS.epochs) #num epochs
     batch_size = int(FLAGS.batch) #NOTE may want to play around with this
-    test_freq = Ntr/batch_size #eval on test set after this many batches
     #print test_freq
 
     # Network Parameters
@@ -488,6 +487,8 @@ if __name__ == "__main__":
     test_writer = tf.summary.FileWriter(tb_dir+'mgp/test/'+str(args.fold))
 
     if mode!="test":
+        test_freq = Ntr/batch_size
+        #eval on test set after this many batches
         #setup minibatch indices
         #print Ntr
         #print batch_size
@@ -685,7 +686,7 @@ if __name__ == "__main__":
             med_cov_grid:meds_cov_pad,num_obs_times:num_obs_times,
             num_obs_values:num_obs_values,num_rnn_grid_times:num_rnn_grid_times,O:labels_te}
             """
-            feed_dict={waveform: H_pad, Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
+            feed_dict={Y:Y_pad,T:T_pad,ind_kf:ind_kf_pad,ind_kt:ind_kt_pad,X:X_pad,
             med_cov_grid:meds_cov_pad,num_obs_times:vectorize(num_obs_times_te,inds),
             num_obs_values:vectorize(num_obs_values_te,inds),
             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
@@ -697,5 +698,9 @@ if __name__ == "__main__":
             predictions.extend(te_preds)
             acc += te_acc
             #start_i = end_i
+        print("Confusion matrix:")
+        print(confusion_matrix(labels_te, predictions[:Nte]))
+        print("AUROC:%s"%(roc_auc_score(labels_te, pred_probs[:Nte])))
+        print("AUPR:%s"%(average_precision_score(labels_te, pred_probs[:Nte])))
         pickle.dump(labels_te,open('icis_revision/mgp_targ_fold'+str(args.fold)+'.pickle','wb'))
         pickle.dump(predictions, open('icis_revision/mgp_preds_fold'+str(args.fold)+'.pickle','wb'))
