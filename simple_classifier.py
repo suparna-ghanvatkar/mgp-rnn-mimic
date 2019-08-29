@@ -35,7 +35,9 @@ eth_count = 0
 Gender = {'M':0, 'F':1}
 #for generating the discrete numeric lables for glascow columns
 def get_encounter(values):
-    sub,stay_no,date,index = values
+    (sub,stay_no),data_index = values
+    sub = int(sub)
+    stay_no = int(stay_no)
     feats = []
     #print("now subject"+str(sub))
     stays = pd.read_csv(data_path+'root/'+str(sub)+'/stays.csv', parse_dates=True)
@@ -49,10 +51,36 @@ def get_encounter(values):
     timeline = timeline[timeline.Hours<=24]
     timeline = timeline.drop_duplicates()
     substr = "%06d"%(sub)
-    subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
     wavepath = '/data/suparna/MatchedSubset_MIMIC3/'
-    #print wavepath+subpathstr
-    signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
+    waveform = np.empty((24*60*60*125))
+    waveform[:] = np.nan
+    #if len(data_index)>1:
+    #    print("%s,%s"%(sub,stay_no))
+    prev_end = 0
+    prev_start = 0
+    for date,index in data_index:
+        subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
+        signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
+        base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
+        start_row = int(ceil((base_time-starttime).total_seconds())*125)
+        available_len = len(waveform)-start_row
+        #if prev_end>start_row:
+        #    if fabs(start_row-prev_start)>37500:    #i.e. if the gap between two recordings start time is greater than 5 minuets
+        #        print("Problem in: %s,%s and has overlap of %s minutes"%(sub, stay_no,(prev_end-start_row)/(125*60)))
+        #print(available_len)
+        #if the waveform has less available length than the signal available then restrict else has no effect
+        #print(fields['sig_len'])
+        end_row = fields['sig_len']+start_row
+        #if len(data_index)>1:
+        #    print("%s,%s"%(start_row,end_row))
+        #prev_end = end_row
+        #prev_start = start_row
+        if available_len<fields['sig_len']:
+            waveform[start_row:] = signal[:available_len,0]
+        else:
+            waveform[start_row:end_row] = signal[:,0]
+    waveform = np.column_stack((np.mean(waveform.reshape(-1,125), axis=1), np.std(waveform.reshape(-1,125), axis=1)))
+    signal = np.nan_to_num(waveform)
     baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv', )
     col_del = ['Hours','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale verbal response']
     t = timeline.drop(col_del,axis=1)
@@ -70,13 +98,6 @@ def get_encounter(values):
         except:
             feats.extend([0]*6)
     #now the counts of glascow scales:
-    for c,v in {"Glascow coma scale verbal response":glascow_verbal,"Glascow coma scale motor response":glascow_motor,"Glascow coma scale eye opening":glascow_eye_open}.iteritems():
-        vals = timeline[c].value_counts()
-        counts = [0]*len(v)
-        for i in range(len(vals.index)):
-            counts[v[vals.index[i]]] = vals[i]
-        #print c+str(len(counts))
-        feats.extend(counts)
     #now the waveform
     s = signal.ravel()
     sig_feats = [np.count_nonzero(~np.isnan(s)), np.nanmean(s), np.nanstd(s), np.nanmin(s), np.nanmedian(s), np.nanmax(s)]
@@ -101,7 +122,7 @@ def get_encounter(values):
     return feats,label
 
 def data_prep(train,fold):
-    sub_stay = pickle.load(open('balanced_data_'+train+'_'+str(fold)+'.pickle','r'))
+    sub_stay = pickle.load(open('icis_revision/filtered_substays_'+train+'_fold'+str(fold)+'.pickle','rb'))
     #sub_stay = sub_stay[:30]
     #print sub_stay
     count = len(sub_stay)
@@ -134,22 +155,25 @@ if __name__=="__main__":
     #print y_train
     x_test,y_test = data_prep('test',args.fold)
     #x_test = np.nan_to_num(np.array(x_test))
+    pickle.dump(y_test, open('icis_revision/simpleclassifier_targ_fold'+str(args.fold)+'.pickle','wb'))
     print("For KNN")
     neigh = KNeighborsClassifier(n_neighbors=60, weights='distance')
     neigh.fit(x_train,y_train)
     y_pred = neigh.predict(x_test)
     print(roc_auc_score(y_test,y_pred))
-
-    '''
+    pickle.dump(y_pred, open('icis_revision/knn_labels_fold'+str(args.fold)+'.pickle','wb'))
+    #'''
     print("For SVM")
     clf_svm = svm.SVC(kernel='sigmoid')
     clf_svm.fit(x_train,y_train)
     y_pred = clf_svm.predict(x_test)
     print(roc_auc_score(y_test,y_pred))
-    '''
+    pickle.dump(y_pred, open('icis_revision/svm_labels_fold'+str(args.fold)+'.pickle','wb'))
+    #'''
 
     print("For MLP")
     clf_mlp = MLPClassifier(hidden_layer_sizes=(200,),solver='adam')
     clf_mlp.fit(x_train,y_train)
     y_pred = clf_mlp.predict(x_test)
+    pickle.dump(y_pred, open('icis_revision/mlp_labels_fold'+str(args.fold)+'.pickle','wb'))
     print(roc_auc_score(y_test,y_pred))

@@ -15,14 +15,12 @@ from time import time
 from sklearn.metrics import roc_auc_score, average_precision_score
 import sys
 import os
-from data_prep import dataset_prep
 import pickle
 from math import ceil
 import argparse
 from hierarchical_util import *
 #from hierarchical_util import pad_rawdata,SE_kernel,OU_kernel,dot,CG,Lanczos,block_CG,block_Lanczos
 #from simulations import *
-from hierarchical_simulations import *
 #from tf.keras.layers import *
 #from patient_events import *
 from patient_traintest_final import *
@@ -233,7 +231,7 @@ def get_probs_and_accuracy(preds,O):
     #compare to truth; just use cutoff of 0.5 for right now to get accuracy
     correct_pred = tf.equal(tf.cast(tf.greater(probs,0.5),tf.int32), O)
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-    return probs,accuracy,correct_pred
+    return probs,accuracy
 
 def vectorize(l,ind):
     return [l[i] for i in ind]
@@ -241,13 +239,13 @@ def vectorize(l,ind):
 flags = tf.app.flags
 #params obtained after hyperparameter optimization
 flags.DEFINE_float("lr",0.00057,"")
-flags.DEFINE_float("l2_penalty",0.005177,"")
+flags.DEFINE_float("l2_penalty",1e-3,"")
 flags.DEFINE_float("n_layers",2.0,"")
 flags.DEFINE_float("epochs",140.0,"")
 flags.DEFINE_float("batch",30.0,"")
 flags.DEFINE_float("beta1",0.9,"")
 flags.DEFINE_float("beta2",0.999,"")
-flags.DEFINE_float("epsilon",0.5,"")
+flags.DEFINE_float("epsilon",1e-8,"")
 '''
 flags.DEFINE_float("lr",0.001,"")
 flags.DEFINE_float("l2_penalty",1e-3,"")
@@ -275,7 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("-beta1",type=float)
     parser.add_argument("-beta2",type=float)
     parser.add_argument("-epsilon",type=float)
-    parser.add_argument("-tensorboard",type=str,default="tensorboard_icis2019")
+    parser.add_argument("-tensorboard",type=str,default="tensorboard_icis2019/")
     #parser.add_argument("-wave_layers",type=float)
     parser.add_argument('--debug', dest='debug')
     args = parser.parse_args()
@@ -283,14 +281,14 @@ if __name__ == "__main__":
     #####
     ##### Setup ground truth and sim some data from a GP
     #####
-    if args.sim=="sim":
-        num_encs=50#100#10000
-        M=10#17#10
-        n_covs=3#10
-        n_meds=10#2938#5
-        (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
-        values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
-    elif args.sim=="data":
+    #if args.sim=="sim":
+    #    num_encs=50#100#10000
+    #    M=10#17#10
+    #    n_covs=3#10
+    #    n_meds=10#2938#5
+    #    (num_obs_times,num_obs_values,num_rnn_grid_times,rnn_grid_times,labels,times,
+    #    values,ind_lvs,ind_times,meds_on_grid,covs,high_freq) = sim_dataset(num_encs,M,n_covs,n_meds)#retrieve_sim_dataset
+    if args.sim=="data":
         #'''
         if mode=="trainonly":
             (num_obs_times_tr,num_obs_values_tr,num_rnn_grid_times_tr,rnn_grid_times_tr,labels_tr,times_tr,
@@ -480,7 +478,7 @@ if __name__ == "__main__":
 
     ##### Get predictions and feed into optimization
     preds = get_preds(Y,T,X,ind_kf,ind_kt,num_obs_times,num_obs_values,num_rnn_grid_times,med_cov_grid)
-    probs,accuracy,pred_labels = get_probs_and_accuracy(preds,O)
+    probs,accuracy = get_probs_and_accuracy(preds,O)
     tf.summary.scalar('accuracy',accuracy)
     # Define optimization problem
     loss_fit = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(logits=preds,labels=O_dupe_onehot))
@@ -528,6 +526,7 @@ if __name__ == "__main__":
         #for i in range(training_iters):
         while epoch_loss>=30.0 or total_batches==0 or i<=thresh:
             #train
+            metric_opt = 0.0 #the metric which is given to hyperparam opt. Here the te_auc will be passed
             epoch_start = time()
             print("Starting epoch "+"{:d}".format(i))
             epoch_loss = 0.0
@@ -561,8 +560,8 @@ if __name__ == "__main__":
                     batch+=1; total_batches+=1
                     continue
                 #'''
-                print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
-                    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
+                #print("Batch "+"{:d}".format(batch)+"/"+"{:d}".format(num_batches)+\
+                #    ", took: "+"{:.3f}".format(time()-batch_start)+", loss: "+"{:.5f}".format(loss_))
                 sys.stdout.flush()
                 batch += 1; total_batches += 1
 
@@ -594,7 +593,6 @@ if __name__ == "__main__":
                         no_iters = int(ceil((Nte*1.0)/batch_size))
                         start_i = 0
                         pred_probs = []
-                        predictions = []
                         #print(perm)
                         batch = 0
                         for ts,te in zip(te_starts,te_ends):
@@ -611,11 +609,10 @@ if __name__ == "__main__":
                             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
                             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
                             try:
-                                summary,te_probs,te_acc,te_preds,te_loss = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
+                                summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
                                 test_writer.add_summary(summary,i)
                                 #print "Te probs:"+str(te_probs)
                                 pred_probs.extend(te_probs)
-                                predictions.extend(te_preds)
                                 acc += te_acc
                                 #auc += te_auc
                                 #prc += te_prc
@@ -642,17 +639,18 @@ if __name__ == "__main__":
             if mode=="trainonly":
                 epoch_loss= epoch_loss/num_batches
             #if total_batches%checkpoint_freq==0:
-            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_balanced/"+str(args.fold)+"/", global_step=total_batches)
+            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/", global_step=total_batches)
             print("Finishing epoch "+"{:d}".format(i)+", took "+\
                   "{:.3f}".format(time()-epoch_start)+" with loss:"+\
                   "{:.3f}".format(epoch_loss))
+            print(metric_opt)
             i += 1
 
             ### Takes about ~1-2 secs per batch of 50 at these settings, so a few minutes each epoch
             ### Should converge reasonably quickly on this toy example with these settings in a few epochs
 
     if mode=="test":
-        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_balanced/"+str(args.fold)+"/"
+        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/"
         ckpt_state = tf.train.get_checkpoint_state(ckpt_dir)
         saver.restore(sess,ckpt_state.model_checkpoint_path)
         print("Model restored")
@@ -664,7 +662,7 @@ if __name__ == "__main__":
         ends = np.arange(batch_size,Nte+1,batch_size)
         perm = np.arange(Nte)
         no_to_pad = batch_size-(Nte%batch_size)
-        print(no_to_pad)
+        #print(no_to_pad)
         #print ends
         if ends[-1]<Nte:
             ends = np.append(ends,int(ceil((Nte*1.0)/batch_size))*batch_size)
@@ -675,8 +673,7 @@ if __name__ == "__main__":
         no_iters = int(ceil((Nte*1.0)/batch_size))
         start_i = 0
         pred_probs = []
-        predictions = []
-        print(perm)
+        #print(perm)
         batch = 0
         for s,e in zip(starts,ends):
             batch_start = time()
@@ -711,12 +708,13 @@ if __name__ == "__main__":
             num_obs_values:vectorize(num_obs_values_te,inds),
             num_rnn_grid_times:vectorize(num_rnn_grid_times_te,inds),O:vectorize(labels_te,inds)}
             #summary,loss_,_ = sess.run([merged,loss,train_op],feed_dict)
-            summary,te_probs,te_acc,te_preds,te_loss = sess.run([merged,probs,accuracy,pred_labels,loss],feed_dict)
+            summary,te_probs,te_acc,te_loss = sess.run([merged,probs,accuracy,loss],feed_dict)
             test_writer.add_summary(summary,i)
             #print "Te probs:"+str(te_probs)
             pred_probs.extend(te_probs)
-            predictions.extend(te_preds)
             acc += te_acc
             #start_i = end_i
-        pickle.dump(labels_te,open('icis_revision/balanced_hierarchical_targ_fold'+str(args.fold)+'.pickle','wb'))
-        pickle.dump(predictions, open('icis_revision/balanced_hierarchical_predprobs_fold'+str(args.fold)+'.pickle','wb'))
+        print("AUROC:%s"%(roc_auc_score(labels_te, pred_probs[:Nte])))
+        print("AUPR:%s"%(average_precision_score(labels_te, pred_probs[:Nte])))
+        pickle.dump(labels_te,open('icis_revision/hierarchical_noglascow_nokalman_targ_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(pred_probs, open('icis_revision/hierarchical_noglascow_nokalman_predprobs_fold'+str(args.fold)+'.pickle','wb'))
