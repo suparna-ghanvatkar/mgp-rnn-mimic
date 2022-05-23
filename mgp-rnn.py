@@ -402,7 +402,7 @@ if __name__ == "__main__":
 
     # Create graph
     config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = 0.8
+    config.gpu_options.per_process_gpu_memory_fraction = 0.75
     ops.reset_default_graph()
     sess = tf.Session(config=config)
     if args.debug:
@@ -505,9 +505,9 @@ if __name__ == "__main__":
         epoch_loss = 0.0
         total_batches = 0
         i = 0
-        thresh = 500
+        thresh = 250
         #for i in range(training_iters):
-        while epoch_loss>=30.0 or total_batches==0 or i<=thresh:
+        while (epoch_loss>=30.0 or total_batches==0) and i<=thresh:
             #train
             epoch_start = time()
             print("Starting epoch "+"{:d}".format(i))

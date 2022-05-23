@@ -62,7 +62,7 @@ def get_encounter(values):
         subpathstr = 'p'+substr[:2]+'/p'+substr+'/p'+substr+'-'+date
         signal,fields = wfdb.rdsamp(wavepath+subpathstr, channels=[index])
         base_time = datetime.datetime.combine(fields['base_date'],fields['base_time'])
-        start_row = int(ceil((base_time-starttime).total_seconds())*125)
+        start_row = int(ceil((base_time-starttime[stay_no]).total_seconds())*125)
         available_len = len(waveform)-start_row
         #if prev_end>start_row:
         #    if fabs(start_row-prev_start)>37500:    #i.e. if the gap between two recordings start time is greater than 5 minuets

@@ -499,10 +499,10 @@ if __name__ == "__main__":
     saver = tf.train.Saver(max_to_keep = 30)
     #Initializing the saver
     tb_dir = args.tensorboard
-    train_writer = tf.summary.FileWriter(tb_dir+'hierarchical/train/'+str(args.fold),sess.graph)
+    train_writer = tf.summary.FileWriter(tb_dir+'mts_kalman/train/'+str(args.fold),sess.graph)
     if not os.path.exists(tb_dir):
         os.makedirs(tb_dir)
-    test_writer = tf.summary.FileWriter(tb_dir+'hierarchical/test/'+str(args.fold))
+    test_writer = tf.summary.FileWriter(tb_dir+'mts_kalman/test/'+str(args.fold))
 
 
     if mode!="test":
@@ -639,7 +639,7 @@ if __name__ == "__main__":
             if mode=="trainonly":
                 epoch_loss= epoch_loss/num_batches
             #if total_batches%checkpoint_freq==0:
-            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/", global_step=total_batches)
+            saver.save(sess, "/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow_kalman/"+str(args.fold)+"/", global_step=total_batches)
             print("Finishing epoch "+"{:d}".format(i)+", took "+\
                   "{:.3f}".format(time()-epoch_start)+" with loss:"+\
                   "{:.3f}".format(epoch_loss))
@@ -650,7 +650,7 @@ if __name__ == "__main__":
             ### Should converge reasonably quickly on this toy example with these settings in a few epochs
 
     if mode=="test":
-        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow/"+str(args.fold)+"/"
+        ckpt_dir ="/data/suparna/icis2019/HIERARCHICAL_MGP_noglascow_kalman/"+str(args.fold)+"/"
         ckpt_state = tf.train.get_checkpoint_state(ckpt_dir)
         saver.restore(sess,ckpt_state.model_checkpoint_path)
         print("Model restored")
@@ -716,5 +716,5 @@ if __name__ == "__main__":
             #start_i = end_i
         print("AUROC:%s"%(roc_auc_score(labels_te, pred_probs[:Nte])))
         print("AUPR:%s"%(average_precision_score(labels_te, pred_probs[:Nte])))
-        pickle.dump(labels_te,open('icis_revision/hierarchical_noglascow_nokalman_targ_fold'+str(args.fold)+'.pickle','wb'))
-        pickle.dump(pred_probs, open('icis_revision/hierarchical_noglascow_nokalman_predprobs_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(labels_te,open('icis_revision/hierarchical_noglascow_kalman_targ_fold'+str(args.fold)+'.pickle','wb'))
+        pickle.dump(pred_probs, open('icis_revision/hierarchical_noglascow_kalman_predprobs_fold'+str(args.fold)+'.pickle','wb'))

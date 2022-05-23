@@ -235,11 +235,11 @@ def create_baseline_input():
         train = pickle.load(open('icis_revision/filtered_substays_train_fold'+str(i)+'.pickle','rb'))
         test = pickle.load(open('icis_revision/filtered_substays_test_fold'+str(i)+'.pickle','rb'))
         #find each episode file and copy it into the folds train or test folder
-        trainfile = open('/data/suparna/icis2019/lstm_withglascow/'+str(i)+'/train_listfile.csv','w')
+        trainfile = open('/data/suparna/icis2019/lstm/'+str(i)+'/train_listfile.csv','w')
         trainfile.write("stay,y_true\n")
-        testfile = open('/data/suparna/icis2019/lstm_withglascow/'+str(i)+'/val_listfile.csv','w')
+        testfile = open('/data/suparna/icis2019/lstm/'+str(i)+'/val_listfile.csv','w')
         testfile.write("stay,y_true\n")
-        fold_dir = '/data/suparna/icis2019/lstm_withglascow/'+str(i)+'/'
+        fold_dir = '/data/suparna/icis2019/lstm/'+str(i)+'/'
         data_path = '/data/suparna/MGP_data/'
         for (sub,stay_no),date_index in train:
             sub = int(sub)
@@ -253,8 +253,8 @@ def create_baseline_input():
             fname = str(sub)+'_episode'+str(stay_no)+'_timeseries.csv'
             dest_path = fold_dir+'train/'+fname
             timeline = pd.read_csv(src_path)
-            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
-            #timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
+            #timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
+            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
             timeline = timeline[timeline.Hours>=0]
             timeline = timeline[timeline.Hours<=24]
             timeline = timeline.drop_duplicates()
@@ -269,8 +269,8 @@ def create_baseline_input():
             label = stays['MORTALITY_INHOSPITAL'][stay_no]
             src_path = '/data/suparna/MGP_data/root/'+str(sub)+'/episode'+str(stay_no+1)+'_timeseries.csv'
             timeline = pd.read_csv(src_path)
-            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
-            #timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
+            #timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glascow coma scale eye opening','Glascow coma scale motor response','Glascow coma scale total','Glascow coma scale verbal response','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
+            timeline = timeline[['Hours','Capillary refill rate','Diastolic blood pressure','Fraction inspired oxygen','Glucose','Heart Rate','Height','Mean blood pressure','Oxygen saturation','Respiratory rate','Systolic blood pressure','Temperature','Weight','pH']]
             timeline = timeline[timeline.Hours>=0]
             timeline = timeline[timeline.Hours<=24]
             timeline = timeline.drop_duplicates()

@@ -4,6 +4,7 @@ The waveforms need to be analyzed from their dump file
 '''
 import pandas as pd
 import numpy as np
+import numpy.ma as ma
 from math import ceil, isnan
 import pickle
 import wfdb
@@ -12,6 +13,7 @@ from time import time
 from collections import defaultdict
 import concurrent.futures
 from multiprocessing import Pool
+from pykalman import KalmanFilter
 
 data_path = '/data/suparna/MGP_data/'
 glascow_eye_open = {}
@@ -107,8 +109,21 @@ def get_encounter(values):
             waveform[start_row:] = signal[:available_len,0]
         else:
             waveform[start_row:end_row] = signal[:,0]
+    #mask = np.isnan(waveform)
+    #wave_mean = np.nanmean(waveform)
+    #print(wave_mean)
+    #waveform = np.nan_to_num(waveform, nan=wave_mean)
+    waveform = np.where(np.isnan(waveform), ma.array(waveform, mask=np.isnan(waveform)).mean(),waveform)
     waveform = np.column_stack((np.mean(waveform.reshape(-1,125), axis=1), np.std(waveform.reshape(-1,125), axis=1)))
-    waveform = np.nan_to_num(waveform)
+    #x = np.ma.masked_array(waveform, mask=mask)
+    #initializing the kalman filter
+    #kf = KalmanFilter(em_vars=['transition_covariance','observation_covariance'])
+    #smoothed = kf.em(x, n_iter=2).smooth(x)[0]
+    #masked_indices = np.where(mask)
+    #newmask = np.invert(mask)
+    #smoothed_values = np.ma.masked_array(smoothed, mask=newmask)
+    #smoothed_values = smoothed_values[smoothed_values.mask==False]
+    #np.put(waveform, masked_indices, smoothed_values)
     #print waveform.shape
     #print("done padding")
     baseline = pd.read_csv(data_path+'root/'+str(sub)+'/baseline'+str(stay_no)+'.csv')
@@ -167,11 +182,11 @@ def prep_mimic(train,fold):
     breakflag = False
     stime = time()
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        #for sub,stay_no,date,index in sub_stay:
+        #for (sub,stay_no),date_index in sub_stay:
         results = executor.map(get_encounter, sub_stay)
         for stayinfo,values in zip(sub_stay,results):
             (sub,stay_no),date_index = stayinfo
-            #values = get_encounter((sub,stay_no,date,index,ind2))
+            #values = get_encounter(((sub,stay_no),date_index))
             start_time = time()
             #print("Preparing subject %s"%str(sub))
             T_i,Y_i,ind_kf_i,ind_kt_i,baseline_i,meds_on_grid_i,grid_times,label,waveform= values
@@ -182,8 +197,6 @@ def prep_mimic(train,fold):
             num_obs_values.append(len(Y_i))
             num_rnn_grid_times.append(len(rnn_grid_times[-1]))
             #validation
-            if num_rnn_grid_times[-1]!=len(meds_on_grid_i):
-                print "tafavat in sub", sub, str(num_rnn_grid_times[-1]), str(len(meds_on_grid_i))
             meds_on_grid.append(meds_on_grid_i.tolist())
             baseline_covs.append(baseline_i)
             Y.append(Y_i)
@@ -197,9 +210,9 @@ def prep_mimic(train,fold):
     #'''
     etime = time()
     print("Total time for data prep: %s"%(etime-stime))
-    print np.array(num_obs_times).mean()
-    print np.array(num_obs_values).mean()
-    print np.array(num_rnn_grid_times).mean()
+    print(np.array(num_obs_times).mean())
+    print(np.array(num_obs_values).mean())
+    print(np.array(num_rnn_grid_times).mean())
     #print Y
     #print "storing the data"
     '''
