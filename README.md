@@ -17,8 +17,11 @@ Citation:
 @inproceedings{ghanvatkar2019deep,
   author={Ghanvatkar, Suparna and Rajan, Vaibhav},
   title={Deep Recurrent Neural Networks for Mortality Prediction in Intensive Care using Clinical Time Series at Multiple Resolutions},
-  booktitle={ICIS 2019 Proceedings},
+  booktitle = {Proceedings of the 40th International Conference on Information Systems, ICIS 2019},
+  publisher = {Association for Information Systems},
   year={2019},
+  month={December 15-18},
+  venue={Munich, Germany},
   isbn={978-0-9966831-9-7},
   url={https://aisel.aisnet.org/icis2019/data_science/data_science/12}
 }
